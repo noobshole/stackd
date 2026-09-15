@@ -1,0 +1,33 @@
+{
+  "name": "stackd",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Stackd — upload a retail receipt, get real tokenized equity back.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=@stackd/web",
+    "build": "npm run build --workspace=@stackd/web",
+    "start": "npm run start --workspace=@stackd/web",
+    "lint": "npm run lint --workspace=@stackd/web",
+    "typecheck": "npm run typecheck --workspace=@stackd/web"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "//react": "Next 14 is a React 18 framework. @solana/wallet-adapter-react depends on @solana-mobile/wallet-adapter-mobile, which drags in react-native and its strict react@19 peer. npm honours that peer over `overrides` and hoists react@19 to the root, where react-dom@18 then reads ReactCurrentDispatcher off React 19 internals that no longer expose it — the build dies before rendering a page. Declaring react/react-dom here forces 18.3.1 into the hoisted root position; react-native's react@19 nests under itself and never reaches the web bundle.",
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "//devDependencies": "npm hoists everything except `next` (its platform-specific @next/swc optional deps keep it nested in apps/web). eslint-config-next gets hoisted to the root and then cannot resolve next/dist/compiled/babel/eslint-parser, so `next lint` dies. Declaring next here too puts one copy at the root where both resolve.",
+  "devDependencies": {
+    "next": "14.2.35"
+  },
+  "overrides": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  }
+}

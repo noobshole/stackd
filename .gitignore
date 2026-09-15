@@ -1,0 +1,31 @@
+node_modules/
+.next/
+out/
+build/
+dist/
+.vercel
+.turbo
+
+# env — never commit real keys
+.env
+.env.local
+.env.*.local
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# os
+.DS_Store
+Thumbs.db
+
+# editor
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
