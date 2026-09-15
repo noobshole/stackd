@@ -1,0 +1,177 @@
+@import '@solana/wallet-adapter-react-ui/styles.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-canvas text-ink font-sans font-light antialiased;
+  }
+
+  /* Brokerage numbers line up in columns. Applied wherever figures are shown. */
+  .num {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum' 1, 'cv01' 1;
+  }
+
+  ::selection {
+    @apply bg-primary/15 text-ink;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-primary/50 ring-offset-2 ring-offset-canvas;
+  }
+}
+
+@layer components {
+  .label-caps {
+    @apply text-2xs font-medium uppercase tracking-label text-ink-subtle;
+  }
+
+  .card {
+    @apply rounded-card border border-line bg-surface shadow-card;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm
+           font-medium transition-colors duration-150 disabled:cursor-not-allowed
+           disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply btn bg-primary text-white hover:bg-primary-hover;
+  }
+
+  .btn-secondary {
+    @apply btn border border-line-strong bg-surface text-ink hover:bg-sunken;
+  }
+
+  .btn-ghost {
+    @apply btn text-ink-muted hover:bg-sunken hover:text-ink;
+  }
+
+  /* Loading placeholder that reads as "data is coming", not "something broke". */
+  .skeleton {
+    @apply relative overflow-hidden rounded bg-sunken;
+  }
+
+  .skeleton::after {
+    @apply absolute inset-0 animate-shimmer;
+    content: '';
+    background-image: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.65),
+      transparent
+    );
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Wallet adapter overrides.
+
+   The stock modal is a dark, DEX-looking purple sheet. Repaint it to the
+   brokerage palette so connecting a wallet does not visually leave the app.
+   --------------------------------------------------------------------------- */
+
+.wallet-adapter-modal-wrapper {
+  background: #ffffff !important;
+  border: 1px solid #e6e2d9 !important;
+  border-radius: 16px !important;
+  box-shadow: 0 24px 64px rgba(26, 26, 46, 0.22) !important;
+  font-family: var(--font-inter), system-ui, sans-serif !important;
+  padding-bottom: 8px !important;
+}
+
+.wallet-adapter-modal-overlay {
+  background: rgba(26, 26, 46, 0.42) !important;
+  backdrop-filter: blur(3px);
+}
+
+.wallet-adapter-modal-title {
+  color: #1a1a2e !important;
+  font-size: 1.125rem !important;
+  font-weight: 500 !important;
+  /* 56px on the right keeps the heading clear of the close button, which the
+     library pins at right:20px — at 24px the two overlap. */
+  padding: 26px 56px 12px 24px !important;
+  line-height: 1.4 !important;
+  text-align: left !important;
+}
+
+.wallet-adapter-modal-button-close {
+  background: #f1eee7 !important;
+  top: 20px !important;
+  right: 20px !important;
+  padding: 8px !important;
+  border-radius: 999px !important;
+}
+
+.wallet-adapter-modal-button-close svg {
+  fill: #6b6878 !important;
+}
+
+.wallet-adapter-modal-list {
+  margin: 0 12px 4px !important;
+}
+
+.wallet-adapter-modal-list li:not(:first-of-type) {
+  margin-top: 4px !important;
+}
+
+.wallet-adapter-modal-list .wallet-adapter-button {
+  background: transparent !important;
+  border-radius: 10px !important;
+  color: #1a1a2e !important;
+  font-family: inherit !important;
+  font-size: 0.9375rem !important;
+  font-weight: 450 !important;
+  height: 52px !important;
+  padding: 0 12px !important;
+  transition: background-color 0.15s ease !important;
+}
+
+.wallet-adapter-modal-list .wallet-adapter-button:hover {
+  background: #f1eee7 !important;
+}
+
+.wallet-adapter-modal-list .wallet-adapter-button-start-icon img {
+  border-radius: 6px;
+}
+
+.wallet-adapter-modal-list .wallet-adapter-button span {
+  color: #9a97a6 !important;
+  font-size: 0.8125rem !important;
+  font-weight: 400 !important;
+}
+
+.wallet-adapter-modal-list-more {
+  color: #4f46e5 !important;
+  font-family: inherit !important;
+  font-size: 0.8125rem !important;
+  margin: 4px 12px 12px !important;
+}
+
+.wallet-adapter-modal-list-more svg {
+  stroke: #4f46e5 !important;
+}
+
+.wallet-adapter-modal-middle {
+  padding: 0 24px 24px !important;
+}
+
+.wallet-adapter-modal-middle-button {
+  background: #4f46e5 !important;
+  border-radius: 10px !important;
+  font-family: inherit !important;
+  font-weight: 500 !important;
+}
