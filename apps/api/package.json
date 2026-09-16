@@ -1,0 +1,30 @@
+{
+  "name": "@stackd/api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Stackd backend: receipt verification via Claude vision.",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.126.0",
+    "@solana/web3.js": "^1.95.4",
+    "@stackd/solana": "*",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "multer": "^2.0.2",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/multer": "^1.4.12",
+    "@types/node": "^20.16.11",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

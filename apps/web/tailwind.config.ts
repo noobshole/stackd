@@ -89,10 +89,18 @@ const config: Config = {
         shimmer: {
           '100%': { transform: 'translateX(100%)' },
         },
+        // Scan line that sweeps the receipt while Claude reads it.
+        scan: {
+          '0%': { transform: 'translateY(0%)', opacity: '0' },
+          '10%': { opacity: '1' },
+          '90%': { opacity: '1' },
+          '100%': { transform: 'translateY(100%)', opacity: '0' },
+        },
       },
       animation: {
         'fade-up': 'fade-up 0.35s cubic-bezier(0.16, 1, 0.3, 1) both',
         shimmer: 'shimmer 1.6s infinite',
+        scan: 'scan 2.1s ease-in-out infinite',
       },
     },
   },
