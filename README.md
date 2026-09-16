@@ -19,8 +19,8 @@ review, no custom token, no Anchor program.
 
 ```
 apps/web          Next.js 14 frontend  (App Router)
+apps/api          Express backend — POST /verify-receipt
 packages/solana   Shared: brand config, Token-2022 balance reads, price lookups
-apps/api          Express backend — Day 2
 ```
 
 npm workspaces. `packages/solana` ships raw TypeScript and is compiled by Next via
@@ -30,11 +30,80 @@ npm workspaces. `packages/solana` ships raw TypeScript and is compiled by Next v
 
 ```bash
 npm install
-cp .env.example apps/web/.env.local   # fill in HELIUS_RPC_URL
-npm run dev
+cp .env.example apps/web/.env.local   # HELIUS_RPC_URL
+cp .env.example apps/api/.env         # ANTHROPIC_API_KEY
+npm run dev                           # web on :3000
+npm run dev --workspace=@stackd/api   # api on :4000
 ```
 
 Other scripts: `npm run build`, `npm run lint`, `npm run typecheck`.
+
+---
+
+## POST /verify-receipt
+
+Multipart: `receipt` (JPG/PNG/PDF, ≤10 MB) and `walletAddress`. Verifies only —
+it never moves tokens. The frontend shows the estimate, the user confirms, and
+the transfer is a separate endpoint (Day 3).
+
+Claude reads the image via **structured outputs** (`output_config.format` +
+`messages.parse`) rather than being asked for "JSON only" in the prompt. The
+schema is enforced server-side, so there is no markdown fence to strip — which
+matters because assistant prefill, the old way to force a leading `{`, returns a
+400 on current models.
+
+Model: **`claude-sonnet-5`**. The original spec named `claude-sonnet-4-20250514`,
+a retired id; this generation carries no date suffix.
+
+Every outcome returns the same JSON shape, on 2xx and 4xx alike, so the client
+has one parsing path:
+
+```jsonc
+{ "flagged": false, "brand": "Starbucks", "ticker": "SBUXx",
+  "amountUsd": 12.40, "confidence": 0.94,
+  "pctBack": 4, "cashbackUsd": 0.496,           // extras
+  "merchantName": "STARBUCKS #04821", "date": "2026-09-16",
+  "currency": "USD", "submissionsRemaining": 2 }
+```
+
+| Status | Meaning |
+| ------ | ------------------------------------------------------- |
+| 200    | Verified. `flagged` says whether it's eligible           |
+| 400    | Missing/invalid wallet, or no file                       |
+| 409    | Duplicate — same wallet + brand + amount within 24h      |
+| 413    | Over 10 MB                                               |
+| 415    | Not a JPG, PNG or PDF                                    |
+| 429    | Over 3 submissions for this wallet in 24h                |
+| 502    | Claude unreachable — quota slot is refunded              |
+
+Rejection reasons a 200 can carry: not authentic, confidence below 0.7,
+non-USD currency, unreadable total, over `MAX_RECEIPT_USD`, or no brand match.
+
+### Three things worth knowing
+
+**Non-USD receipts are refused, not converted.** `total_amount` is in whatever
+currency the receipt used and there is no FX source wired up. Treating a
+50,000 IDR receipt as $50,000 would pay out ~$2,000 of stock for a coffee.
+ROADMAP: add an FX lookup and convert.
+
+**Quota is spent on attempts, not successes.** The slot is taken before the
+Claude call so concurrent uploads can't all bill the API, and refunded only when
+*we* fail (unreachable, rate limited, bad credentials). A receipt that was
+checked and found fake keeps its slot — otherwise fakes could be brute-forced
+for free.
+
+**Brand matching is on whole tokens, not substrings.** `"Nikon Camera Store"`
+must not match Nike and pay out shares for a camera shop. Covered by the cases
+in `matchBrand`.
+
+### ROADMAP: rate limiting is in-memory
+
+`apps/api/src/lib/submissions.ts` holds limits and duplicate history in a
+process-local `Map`. Limits reset on deploy and are not shared across
+instances — three replicas means an effective 3n per wallet. Fine for a single
+demo process; move to Redis before the treasury holds anything worth stealing.
+The function signatures are shaped so that's a body change, not an interface
+change.
 
 ---
 
@@ -123,9 +192,12 @@ entry. The default wallet-adapter modal is restyled to the brokerage palette in
 
 ## Status
 
-Day 1 is the frontend. `/app/submit` is a **mock** — nothing uploads, nothing transfers,
-and the UI says so on screen. Day 2 is `POST /verify-receipt`, the Claude Vision call, and
-the SPL transfer.
+Frontend and receipt verification are live. `/app/submit` uploads to the real endpoint and
+shows what Claude read.
+
+Still to build: the treasury transfer that actually pays a verified receipt out. The Claim
+button is present and disabled until that lands — see the Token-2022 and scaled-multiplier
+notes above before writing it.
 
 ## Dependency note
 

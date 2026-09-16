@@ -118,7 +118,7 @@ export default function BrandsPage() {
               </dl>
 
               <Link
-                href={`/app/submit?brand=${brand.slug}`}
+                href="/app/submit"
                 className="btn-secondary mt-4 w-full"
               >
                 Submit a {brand.name} receipt
