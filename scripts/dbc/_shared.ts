@@ -55,6 +55,35 @@ export function getConnection(cluster: Cluster): Connection {
   return new Connection(getRpcUrl(cluster), 'confirmed');
 }
 
+/**
+ * Public keys whose secrets are known to have been exposed (pasted into chat,
+ * a ticket, a screenshot). Safe on devnet, where the funds are worthless.
+ * Refused on mainnet — anyone holding the secret could drain the wallet or
+ * claim fees as the pool creator.
+ *
+ * Add to this list rather than relying on remembering.
+ */
+const BURNED_PUBKEYS = new Set<string>([
+  // Pasted into a Claude Code session on 2026-09-17. Devnet use only.
+  '8AhsYWhQpQ43xkMsNey1k3utvyCLuRyHVeDFKr8WJvab',
+]);
+
+export function assertKeyUsableOn(keypair: Keypair, cluster: Cluster): void {
+  const pubkey = keypair.publicKey.toBase58();
+  if (cluster === 'mainnet' && BURNED_PUBKEYS.has(pubkey)) {
+    throw new Error(
+      [
+        `Refusing to use ${pubkey} on mainnet.`,
+        '',
+        "This key's secret has been exposed in plain text, so anyone who has seen",
+        'it can sign as this wallet — including claiming pool fees as the creator.',
+        '',
+        'Generate a fresh keypair for mainnet:  npm run dbc:keygen',
+      ].join('\n'),
+    );
+  }
+}
+
 /** Load a base58 secret key from an env var. */
 export function loadKeypair(envVar: string): Keypair {
   const secret = process.env[envVar]?.trim();
