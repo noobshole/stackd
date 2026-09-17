@@ -26,7 +26,7 @@ export const metadata: Metadata = {
     template: '%s · Stackd',
   },
   description:
-    'Upload a receipt from Starbucks, Nike, Netflix or Walmart and get real tokenized shares back on Solana. Up to 4% of every purchase, in stock.',
+    "Upload a receipt from McDonald's, Amazon, Nike, Costco and more, and get real tokenized shares back on Solana. Up to 4% of every purchase, in stock.",
   openGraph: {
     title: 'Stackd — turn receipts into equity',
     description:

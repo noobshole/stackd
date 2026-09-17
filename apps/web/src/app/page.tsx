@@ -78,7 +78,9 @@ export default function LandingPage() {
         <section className="border-y border-line bg-surface/60">
           <div className="mx-auto w-full max-w-6xl px-5 py-12 sm:px-8">
             <div className="flex flex-wrap items-end justify-between gap-3">
-              <h2 className="text-lg font-medium text-ink">Four brands at launch</h2>
+              <h2 className="text-lg font-medium text-ink">
+                {BRANDS.length} brands at launch
+              </h2>
               <Link
                 href="/app/brands"
                 className="text-sm font-medium text-primary hover:underline"
@@ -133,7 +135,7 @@ export default function LandingPage() {
               <dl className="grid gap-6 sm:grid-cols-2">
                 <Fact
                   term="Real tokenized equity"
-                  detail="xStocks are issued by Backed Finance and collateralised 1:1 by the underlying share. Your SBUXx tracks Starbucks because it is backed by Starbucks."
+                  detail="Tokens are issued by Backed Finance and Backpack Securities and collateralised 1:1 by the underlying share. Your MCDx tracks McDonald's because it is backed by McDonald's."
                 />
                 <Fact
                   term="Yours, not ours"

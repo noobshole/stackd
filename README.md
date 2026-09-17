@@ -2,16 +2,25 @@
 
 Upload a retail receipt, get real tokenized equity back.
 
-Claude Vision verifies the receipt. xStock tokens — actual tokenized shares issued by
-Backed Finance — transfer from a treasury wallet to the user's Solana address. No manual
-review, no custom token, no Anchor program.
+Claude Vision verifies the receipt. Tokenized shares — issued by Backed Finance and
+Backpack Securities, collateralised 1:1 by the underlying stock — transfer from a treasury
+wallet to the user's Solana address. No manual review, no Anchor program, and no invented
+token in the core reward.
 
-| Brand     | xStock  | Back |
-| --------- | ------- | ---- |
-| Starbucks | `SBUXx` | 4%   |
-| Nike      | `NKEx`  | 3%   |
-| Netflix   | `NFLXx` | 3%   |
-| Walmart   | `WMTx`  | 2%   |
+| Brand      | Token   | Issuer              | Back |
+| ---------- | ------- | ------------------- | ---- |
+| McDonald's | `MCDx`  | Backed Finance      | 4%   |
+| Nike       | `NKE`   | Backpack Securities | 3%   |
+| Netflix    | `NFLXx` | Backed Finance      | 3%   |
+| lululemon  | `LULU`  | Backpack Securities | 3%   |
+| Amazon     | `AMZNx` | Backed Finance      | 2%   |
+| Costco     | `COST`  | Backpack Securities | 2%   |
+| Walmart    | `WMTx`  | Backed Finance      | 2%   |
+| Apple      | `AAPLx` | Backed Finance      | 1%   |
+
+A brand earns a slot only if people hold receipts from it **and** its token has
+real DEX liquidity, so the treasury can actually be stocked with it. Starbucks
+is absent for the second reason: SBUXx exists but has no routable market.
 
 ---
 
@@ -59,10 +68,10 @@ Every outcome returns the same JSON shape, on 2xx and 4xx alike, so the client
 has one parsing path:
 
 ```jsonc
-{ "flagged": false, "brand": "Starbucks", "ticker": "SBUXx",
+{ "flagged": false, "brand": "McDonald's", "ticker": "MCDx",
   "amountUsd": 12.40, "confidence": 0.94,
   "pctBack": 4, "cashbackUsd": 0.496,           // extras
-  "merchantName": "STARBUCKS #04821", "date": "2026-09-16",
+  "merchantName": "MCDONALDS #04821", "date": "2026-09-17",
   "currency": "USD", "submissionsRemaining": 2 }
 ```
 
@@ -107,13 +116,17 @@ change.
 
 ---
 
-## Two things about xStocks that shape the whole codebase
+## Two things about these tokens that shape the whole codebase
 
 ### 1. They are Token-2022, not legacy SPL Token
 
-All four mints run on `TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb`. Every ATA derivation
-and every transfer instruction must pass `TOKEN_2022_PROGRAM_ID`. Using the legacy program
-id derives a different — and wrong — associated token account.
+Every mint — both issuers — runs on `TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb`. Every
+ATA derivation and every transfer instruction must pass `TOKEN_2022_PROGRAM_ID`. Using the
+legacy program id derives a different — and wrong — associated token account.
+
+Verified on-chain 2026-09-17: no mint is frozen-by-default and none carries a transfer
+hook, so all eight airdrop cleanly to a fresh wallet. All do retain a permanent delegate —
+standard for regulated RWAs, and worth stating plainly when describing custody.
 
 ### 2. They use the Scaled UI Amount extension
 
@@ -126,12 +139,19 @@ displayed balance = rawAmount / 10^decimals * effectiveMultiplier
 
 This is not cosmetic. As of 2026-09-15 every brand in the MVP set has a multiplier ≠ 1:
 
-| xStock  | Effective multiplier |
-| ------- | -------------------- |
-| `SBUXx` | 1.003998157531       |
-| `NKEx`  | 1.007347670251       |
-| `NFLXx` | **10**               |
-| `WMTx`  | 1.0071845610241497   |
+| Token   | Issuer   | Decimals | Effective multiplier |
+| ------- | -------- | -------- | -------------------- |
+| `NFLXx` | Backed   | 8        | **10**               |
+| `MCDx`  | Backed   | 8        | 1.021181             |
+| `WMTx`  | Backed   | 8        | 1.007185             |
+| `AAPLx` | Backed   | 8        | 1.003269             |
+| `AMZNx` | Backed   | 8        | 1.000000             |
+| `NKE`   | Backpack | 6        | 1.000000             |
+| `COST`  | Backpack | 6        | 1.000000             |
+| `LULU`  | Backpack | 6        | 1.000000             |
+
+Backed mints are 8 decimals with live multipliers; Backpack mints are 6 decimals
+at 1.0. **Never assume either per issuer** — read them per mint.
 
 A naive `raw / 10^8` reports a **tenth** of a holder's real NFLXx position.
 
@@ -161,7 +181,7 @@ No public endpoints are used anywhere.
 ## Pricing
 
 Jupiter Price API v3. It only returns `usdPrice` for mints with routable DEX liquidity;
-SBUXx and NKEx are too new to have depth, so those fall back to `stockData.price` — the
+Thinly-traded listings can lack a routed price, so those fall back to `stockData.price` — the
 underlying listed share price — and the UI marks them with a `†` rather than passing a
 different kind of number off as the same thing.
 

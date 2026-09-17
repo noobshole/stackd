@@ -2,8 +2,8 @@
  * xStock pricing via the Jupiter Price API (v3).
  *
  * Jupiter returns `usdPrice` only for mints with enough routable DEX
- * liquidity. The newer xStocks — SBUXx and NKEx at time of writing — have
- * pools but effectively no depth, so `usdPrice` is absent. For those we fall
+ * liquidity. Thinly-traded listings have pools with little depth, and brand-new
+ * ones none at all, so `usdPrice` can be absent. For those we fall
  * back to `stockData.price`, the price of the underlying listed equity, and
  * mark the source so the UI can be honest about which number it is showing.
  */
