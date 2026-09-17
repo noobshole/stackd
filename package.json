@@ -12,7 +12,11 @@
     "build": "npm run build --workspace=@stackd/web",
     "start": "npm run start --workspace=@stackd/web",
     "lint": "npm run lint --workspace=@stackd/web",
-    "typecheck": "npm run typecheck --workspace=@stackd/web"
+    "typecheck": "npm run typecheck --workspace=@stackd/web",
+    "dbc:launch": "tsx scripts/dbc/launch.ts",
+    "dbc:claim-fees": "tsx scripts/dbc/claim-fees.ts",
+    "dbc:simulate": "tsx scripts/dbc/simulate-graduation.ts",
+    "test": "npm test --workspace=@stackd/solana"
   },
   "engines": {
     "node": ">=18.17"
@@ -24,7 +28,8 @@
   },
   "//devDependencies": "npm hoists everything except `next` (its platform-specific @next/swc optional deps keep it nested in apps/web). eslint-config-next gets hoisted to the root and then cannot resolve next/dist/compiled/babel/eslint-parser, so `next lint` dies. Declaring next here too puts one copy at the root where both resolve.",
   "devDependencies": {
-    "next": "14.2.35"
+    "next": "14.2.35",
+    "tsx": "^4.19.2"
   },
   "overrides": {
     "react": "18.3.1",

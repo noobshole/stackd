@@ -258,6 +258,62 @@ twice**. Swap in a Prisma implementation of `ReceiptStore` before real money
 moves, and implement `claimLeg` as a conditional `UPDATE ... WHERE txSignature
 IS NULL` rather than read-then-write.
 
+## Meteora DBC / $STACKD
+
+SDK signatures were read from the Meteora docs MCP and verified against the
+installed `@meteora-ag/dynamic-bonding-curve-sdk@1.5.12` — not recalled.
+
+```bash
+npm run dbc:launch        # config + pool (dry run; add -- --execute)
+npm run dbc:claim-fees    # creator fees -> Rewards Vault
+npm run dbc:simulate      # buy until 750 USDC, confirm graduation
+```
+
+Config per Part 2.3: USDC quote, single-segment curve via `buildCurve`, 750 USDC
+`migrationQuoteThreshold`, `MigrationOption.MET_DAMM_V2`,
+`MigrationFeeOption.FixedBps100`, and a linear fee scheduler with identical
+start/end bps — which is how the SDK expresses "fixed fee, no decay".
+
+### ⚠️ The Part 2.2 supply split is not expressible as written
+
+**This is permanent once run on mainnet, so read it before `dbc:launch`.**
+
+The plan describes minting $STACKD ourselves and transferring 60% / 25% / 15%
+into the curve, a Rewards Vault, and a team wallet. DBC does not work that way:
+
+- `creator.createPool` takes a **brand new** base-mint keypair. The program
+  initialises the mint and mints the whole supply into a program-owned vault.
+  You cannot hand it a mint you already created and pre-split.
+- `leftover_receiver` is documented as the receiver for leftover base tokens
+  **after migration**. Nothing is claimable at genesis.
+
+What ships instead:
+
+| Part 2.2 bucket | How it is actually expressed |
+| --------------- | ---------------------------- |
+| 60% public curve | ~65% sells on the curve |
+| 15% team | `leftover: 15%` → `leftoverReceiver` (team), after migration |
+| — | `percentageSupplyOnMigration: 20%` seeds the DAMM v2 pool |
+| **25% Rewards Vault** | **No genesis allocation exists.** Funded by claiming creator trading fees. |
+
+**Consequence for Leg 2:** the vault starts empty, so `sendStackdBonus()`
+returns null and the bonus pauses until fees have been claimed *and* converted
+to $STACKD. Leg 1 is completely unaffected — which is the safety property
+Part 2.4 was designed around, now load-bearing rather than theoretical.
+
+No mint authority survives genesis: `tokenAuthorityOption` is
+`TokenAuthorityOption.Immutable`, so Part 2.2's "no future minting, ever" is a
+config property rather than a burn step someone could forget.
+
+### Safety guards
+
+Genesis is irreversible, so the scripts refuse to make it easy:
+
+- Mainnet requires `DBC_ALLOW_MAINNET=I_UNDERSTAND_THIS_IS_PERMANENT`
+- `dbc:simulate` refuses mainnet outright — proving graduation shouldn't cost 750 real USDC
+- Every script is a dry run until `-- --execute`
+- No public RPC fallback; a missing Helius URL is a hard failure
+
 ## Status
 
 Frontend and receipt verification are live. `/app/submit` uploads to the real endpoint and

@@ -50,19 +50,15 @@ export function getStackdConfig(): StackdConfig | null {
 }
 
 /**
- * Price of one STACKD in USD.
+ * Price of one STACKD in USD, quoted live off the bonding curve.
  *
- * STUB — Day 4 replaces this with a real Dynamic Bonding Curve quote. The fixed
- * value exists so the bonus leg is testable in isolation before that lands.
- * It is deliberately obvious rather than plausible: if this number ever reaches
- * a user-facing surface, it should look wrong.
+ * The Day 3 placeholder is gone. This now delegates to the DBC quote in
+ * ./dbc.ts, which returns null when the pool is unset or unreachable rather
+ * than inventing a number. A null price pauses the bonus leg — which is the
+ * correct behaviour, because paying out against a guessed price would either
+ * short the user or drain the vault.
  */
-export const STACKD_PLACEHOLDER_PRICE_USD = 0.01;
-
-export async function getDbcQuotePrice(): Promise<number> {
-  // TODO(day-4): quote against the DBC pool instead of returning a constant.
-  return STACKD_PLACEHOLDER_PRICE_USD;
-}
+// getDbcQuotePrice lives in ./dbc and is exported from the server entry.
 
 /**
  * Whole-token STACKD balance held by `owner`.
