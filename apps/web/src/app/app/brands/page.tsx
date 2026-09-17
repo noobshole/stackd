@@ -19,7 +19,7 @@ export default function BrandsPage() {
     <>
       <SectionHeader
         title="Brands"
-        description="Four brands at launch. Every payout is a real tokenized share issued by Backed Finance — not points, and not a token we made up."
+        description="Every payout is a real tokenized share, issued by Backed Finance or Backpack Securities and collateralised 1:1 by the underlying stock — not points."
       />
 
       <div className="card mb-6 flex flex-wrap items-center gap-x-4 gap-y-3 px-5 py-4">
@@ -121,7 +121,7 @@ export default function BrandsPage() {
                 href="/app/submit"
                 className="btn-secondary mt-4 w-full"
               >
-                Submit a {brand.name} receipt
+                Submit {/^[aeiou]/i.test(brand.name) ? 'an' : 'a'} {brand.name} receipt
               </Link>
             </article>
           );

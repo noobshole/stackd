@@ -1,29 +1,43 @@
 /**
- * Stackd brand → xStock mapping (MVP set).
+ * Stackd brand → tokenized-equity mapping.
  *
- * Mint addresses were pulled from the Jupiter token API and cross-checked
- * against Backed Finance's `xstocks` tag on 2026-09-15. Every one of them is:
- *   - tokenProgram: TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb  (Token-2022)
- *   - decimals: 8
- *   - tagged ["verified", "token-2022", "stocks", "rwa", "xstocks"]
+ * Selection rule: a brand earns a slot only if BOTH are true —
+ *   1. ordinary people hold receipts from it, and
+ *   2. its token has real DEX liquidity, so the treasury can actually be
+ *      stocked with it.
  *
- * ⚠️ These are Token-2022 mints, NOT legacy SPL Token mints. Every ATA
- * derivation and transfer instruction must pass TOKEN_2022_PROGRAM_ID.
- * See ./token-program.ts.
+ * Rule 2 is why Starbucks is absent. SBUXx exists but has no routable market
+ * on any Solana DEX, so there is no way to buy inventory to pay anyone with.
+ * Listing a brand we cannot pay out would be a lie on the brands page.
+ *
+ * TWO ISSUERS, DIFFERENT MECHANICS — verified on-chain 2026-09-17:
+ *   Backed Finance  (`xstocks` tag)  — 8 decimals, live scaled-UI multipliers
+ *   Backpack Securities (`backpack`) — 6 decimals, multiplier 1.0
+ *
+ * Both are Token-2022, neither is frozen-by-default, neither has a transfer
+ * hook, so both airdrop to a fresh wallet. Both retain a permanent delegate —
+ * standard for regulated RWAs, worth knowing when describing custody.
+ *
+ * Never assume decimals or multiplier per issuer. Read them per mint and route
+ * every amount through toRawAmount() in scaled-amount.ts.
  */
+
+export type Issuer = 'Backed Finance' | 'Backpack Securities';
 
 export interface Brand {
   /** Stable slug used in URLs and the DB. */
   slug: string;
   /** Display name shown in the UI and matched against Claude's merchant_name. */
   name: string;
-  /** xStock ticker, e.g. "SBUXx". */
+  /** Token ticker as it trades, e.g. "MCDx" or "NKE". */
   ticker: string;
   /** Token-2022 mint address on Solana mainnet. */
   mint: string;
-  /** Mint decimals. All xStocks are 8. */
+  /** Mint decimals. Backed is 8, Backpack is 6 — never assume. */
   decimals: number;
-  /** Cashback percentage of the receipt total, paid in the xStock. */
+  /** Who issues and collateralises the token. */
+  issuer: Issuer;
+  /** Cashback percentage of the receipt total, paid in the token. */
   pctBack: number;
   /** Underlying listed equity, for the "what you actually own" copy. */
   underlying: string;
@@ -37,23 +51,40 @@ export interface Brand {
 
 export const BRANDS: Brand[] = [
   {
-    slug: 'starbucks',
-    name: 'Starbucks',
-    ticker: 'SBUXx',
-    mint: 'Xs9gd8SGbYQn9kkUYQayn46BdqQbvvUshEF6ZpRAzM7',
+    slug: 'mcdonalds',
+    name: "McDonald's",
+    ticker: 'MCDx',
+    mint: 'XsqE9cRRpzxcGKDXj1BJ7Xmg4GRhZoyY1KpmGSxAWT2',
     decimals: 8,
+    issuer: 'Backed Finance',
     pctBack: 4,
-    underlying: 'Starbucks Corporation (NASDAQ: SBUX)',
-    category: 'Coffee & food',
-    aliases: ['starbucks coffee', 'starbucks corp', 'sbux', 'starbucks reserve'],
-    accent: '#00704A',
+    underlying: "McDonald's Corporation (NYSE: MCD)",
+    category: 'Food & drink',
+    // "MCDONALD'S" tokenises to ["mcdonald","s"]; "MCDONALDS" to ["mcdonalds"].
+    // Both spellings appear on real receipts, so both are listed.
+    aliases: ['mcdonalds', 'mc donalds', 'mcd', "mcdonald's restaurant", 'golden arches'],
+    accent: '#DA291C',
+  },
+  {
+    slug: 'amazon',
+    name: 'Amazon',
+    ticker: 'AMZNx',
+    mint: 'Xs3eBt7uRfJX8QUs4suhyU8p2M6DoUDrJyWBa8LLZsg',
+    decimals: 8,
+    issuer: 'Backed Finance',
+    pctBack: 2,
+    underlying: 'Amazon.com, Inc. (NASDAQ: AMZN)',
+    category: 'Online retail',
+    aliases: ['amazon.com', 'amzn', 'amzn mktp', 'amazon marketplace', 'amazon prime'],
+    accent: '#232F3E',
   },
   {
     slug: 'nike',
     name: 'Nike',
-    ticker: 'NKEx',
-    mint: 'XsGYpMvKbVt6ViHqRd7cF3s746dAMFBQWcC49hB9VVP',
-    decimals: 8,
+    ticker: 'NKE',
+    mint: 'NKEda5nHhNGgjrE9nDdMvaEmkmJ96qqxzBVZEcKmjSg',
+    decimals: 6,
+    issuer: 'Backpack Securities',
     pctBack: 3,
     underlying: 'NIKE, Inc. (NYSE: NKE)',
     category: 'Apparel',
@@ -61,11 +92,38 @@ export const BRANDS: Brand[] = [
     accent: '#111111',
   },
   {
+    slug: 'costco',
+    name: 'Costco',
+    ticker: 'COST',
+    mint: 'CZEB3WNZuF2Yz1z2H81RcCk8T7fsw82KB33zqamASVsg',
+    decimals: 6,
+    issuer: 'Backpack Securities',
+    pctBack: 2,
+    underlying: 'Costco Wholesale Corporation (NASDAQ: COST)',
+    category: 'Groceries & retail',
+    aliases: ['costco wholesale', 'costco.com', 'costco whse', 'costco gas'],
+    accent: '#005DAA',
+  },
+  {
+    slug: 'lululemon',
+    name: 'lululemon',
+    ticker: 'LULU',
+    mint: 'LULUmT9VMttkfAJE236LXJcYJ2tTP7nunrSWR5G1BdS',
+    decimals: 6,
+    issuer: 'Backpack Securities',
+    pctBack: 3,
+    underlying: 'lululemon athletica inc. (NASDAQ: LULU)',
+    category: 'Apparel',
+    aliases: ['lululemon athletica', 'lulu'],
+    accent: '#D31334',
+  },
+  {
     slug: 'netflix',
     name: 'Netflix',
     ticker: 'NFLXx',
     mint: 'XsEH7wWfJJu2ZT3UCFeVfALnVA6CP5ur7Ee11KmzVpL',
     decimals: 8,
+    issuer: 'Backed Finance',
     pctBack: 3,
     underlying: 'Netflix, Inc. (NASDAQ: NFLX)',
     category: 'Subscriptions',
@@ -78,11 +136,33 @@ export const BRANDS: Brand[] = [
     ticker: 'WMTx',
     mint: 'Xs151QeqTCiuKtinzfRATnUESM2xTU6V9Wy8Vy538ci',
     decimals: 8,
+    issuer: 'Backed Finance',
     pctBack: 2,
     underlying: 'Walmart Inc. (NYSE: WMT)',
     category: 'Groceries & retail',
-    aliases: ['walmart supercenter', 'wal-mart', 'walmart.com', 'wmt', 'walmart neighborhood market'],
+    aliases: [
+      'walmart supercenter',
+      'wal-mart',
+      'walmart.com',
+      'wmt',
+      'walmart neighborhood market',
+    ],
     accent: '#0071CE',
+  },
+  {
+    slug: 'apple',
+    name: 'Apple',
+    ticker: 'AAPLx',
+    mint: 'XsbEhLAtcf6HdfpFZ5xEMdqW8nfAvcsP5bdudRLJzJp',
+    decimals: 8,
+    issuer: 'Backed Finance',
+    // Deliberately the lowest rate: Apple receipts are high-ticket, and at the
+    // $1000 MAX_RECEIPT_USD cap this is still a $10 payout from one receipt.
+    pctBack: 1,
+    underlying: 'Apple Inc. (NASDAQ: AAPL)',
+    category: 'Electronics',
+    aliases: ['apple store', 'apple.com', 'apple inc'],
+    accent: '#6E6E73',
   },
 ];
 
@@ -100,5 +180,8 @@ export const BRAND_BY_TICKER: Record<string, Brand> = Object.fromEntries(
 
 export const ALL_MINTS: string[] = BRANDS.map((b) => b.mint);
 
-/** Highest cashback rate in the MVP set, for landing-page copy. */
+/** Highest cashback rate in the set, for landing-page copy. */
 export const MAX_PCT_BACK: number = Math.max(...BRANDS.map((b) => b.pctBack));
+
+/** Distinct issuers represented, for the "what you actually own" copy. */
+export const ISSUERS: Issuer[] = Array.from(new Set(BRANDS.map((b) => b.issuer)));

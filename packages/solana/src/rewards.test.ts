@@ -20,7 +20,7 @@ import type { StackdConfig } from './stackd';
 import { NO_SCALING, type ScaledUiAmountState } from './scaled-amount';
 
 const NFLX = BRAND_BY_TICKER.NFLXx;
-const SBUX = BRAND_BY_TICKER.SBUXx;
+const THIN = BRAND_BY_TICKER.AMZNx; // 8dp, multiplier 1.0
 const RECIPIENT = 'So11111111111111111111111111111111111111112';
 
 /** A submitter that records calls instead of sending anything. */
@@ -193,11 +193,11 @@ describe('test_price_resolution_fallback', () => {
   });
 
   it('falls back to stockData.price when Jupiter returns no usdPrice', async () => {
-    // SBUXx has a pool but effectively no depth, so Jupiter omits usdPrice.
+    // Simulate a mint with a pool but no routable depth: Jupiter omits usdPrice.
     globalThis.fetch = (async () =>
       new Response(
         JSON.stringify({
-          [SBUX.mint]: {
+          [THIN.mint]: {
             decimals: 8,
             stockData: { price: 99.269 },
             // no usdPrice
@@ -206,18 +206,18 @@ describe('test_price_resolution_fallback', () => {
         { status: 200, headers: { 'content-type': 'application/json' } },
       )) as typeof fetch;
 
-    const prices = await fetchXStockPrices([SBUX.mint]);
+    const prices = await fetchXStockPrices([THIN.mint]);
 
-    assert.equal(prices[SBUX.mint].usd, 99.269);
-    assert.equal(prices[SBUX.mint].source, 'underlying');
-    assert.equal(prices[SBUX.mint].change24hPct, null);
+    assert.equal(prices[THIN.mint].usd, 99.269);
+    assert.equal(prices[THIN.mint].source, 'underlying');
+    assert.equal(prices[THIN.mint].change24hPct, null);
   });
 
   it('prefers the routed market price when both are present', async () => {
     globalThis.fetch = (async () =>
       new Response(
         JSON.stringify({
-          [SBUX.mint]: {
+          [THIN.mint]: {
             usdPrice: 77.82,
             priceChange24h: 0.8,
             stockData: { price: 80.06 },
@@ -226,9 +226,9 @@ describe('test_price_resolution_fallback', () => {
         { status: 200, headers: { 'content-type': 'application/json' } },
       )) as typeof fetch;
 
-    const prices = await fetchXStockPrices([SBUX.mint]);
-    assert.equal(prices[SBUX.mint].usd, 77.82);
-    assert.equal(prices[SBUX.mint].source, 'market');
+    const prices = await fetchXStockPrices([THIN.mint]);
+    assert.equal(prices[THIN.mint].usd, 77.82);
+    assert.equal(prices[THIN.mint].source, 'market');
   });
 
   it('pays out using the fallback price end to end', async () => {
@@ -239,7 +239,7 @@ describe('test_price_resolution_fallback', () => {
     globalThis.fetch = (async () =>
       new Response(
         JSON.stringify({
-          [SBUX.mint]: { decimals: 8, stockData: { price: 100 } },
+          [THIN.mint]: { decimals: 8, stockData: { price: 100 } },
         }),
         { status: 200, headers: { 'content-type': 'application/json' } },
       )) as typeof fetch;
@@ -247,9 +247,9 @@ describe('test_price_resolution_fallback', () => {
     const signature = await sendXStockReward(
       {
         recipientWallet: RECIPIENT,
-        xstockMint: SBUX.mint,
+        xstockMint: THIN.mint,
         spendUsd: 100,
-        pctBack: 4, // $4 reward at $100/share -> 0.04 SBUXx
+        pctBack: 4, // $4 reward at $100/share -> 0.04 tokens
         receiptId: 'receipt-fallback',
       },
       {
@@ -262,7 +262,7 @@ describe('test_price_resolution_fallback', () => {
     );
 
     assert.equal(signature, 'sig-fallback');
-    // 0.04 SBUXx at 8dp, multiplier 1.
+    // 0.04 tokens at 8dp, multiplier 1.
     assert.equal(spy.calls[0].rawAmount, 4_000_000n);
   });
 });

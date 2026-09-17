@@ -26,7 +26,7 @@ export function formatUsdCompact(value: number | null | undefined, fallback = '�
 
 /**
  * Fractional share quantities. xStocks are 8-decimal and cashback pays out in
- * slivers, so a $4 Starbucks run at 4% buys roughly 0.0016 SBUXx — trailing
+ * slivers, so a $4 McDonald's run at 4% buys roughly 0.0006 MCDx — trailing
  * precision is the whole product, not noise. Show up to 6 places and trim.
  */
 export function formatTokenAmount(value: number | null | undefined, fallback = '—'): string {
