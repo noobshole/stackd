@@ -36,8 +36,8 @@ import { BRAND_BY_MINT } from './brands';
 import { fetchXStockPrices } from './prices';
 import { fetchScaledUiAmountState, toRawAmount } from './scaled-amount';
 import { getConnection, getTreasuryKeypair } from './treasury';
+import { getDbcQuotePrice } from './dbc';
 import {
-  getDbcQuotePrice,
   getStackdConfig,
   getVaultBalance,
   type StackdConfig,
@@ -365,8 +365,10 @@ export async function sendStackdBonus(
   try {
     // 2-4. Size the bonus. bonusRate is fractional, so no /100 here.
     const bonusUsd = spendUsd * bonusRate;
+    // null means the curve could not be quoted (pool unset, RPC down, not yet
+    // launched). Never substitute a guess — pause instead.
     const price = await deps.quotePrice();
-    if (!Number.isFinite(price) || price <= 0) {
+    if (price == null || !Number.isFinite(price) || price <= 0) {
       console.warn('STACKD bonus vault low, pausing bonus leg (no usable price)');
       await deps.store.releaseLeg(receiptId, 'bonus');
       return null;

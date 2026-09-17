@@ -8,5 +8,6 @@
 
 export * from './treasury';
 export * from './receipt-store';
+export * from './dbc';
 export * from './stackd';
 export * from './rewards';
