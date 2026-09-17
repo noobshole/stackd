@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { BRANDS, MAX_PCT_BACK } from '@stackd/solana';
+import { BRANDS, ISSUERS, MAX_PCT_BACK } from '@stackd/solana';
 import { Logo } from '@/components/ui/Logo';
 import { BrandMark } from '@/components/ui/primitives';
 
@@ -52,8 +52,9 @@ export default function LandingPage() {
 
               <p className="mt-6 max-w-lg text-base leading-relaxed text-ink-muted">
                 Upload a receipt and get real tokenized shares back — up to {MAX_PCT_BACK}% of
-                every purchase, sent straight to your Solana wallet. Not points. Not a token we
-                invented. Actual equity exposure, issued by Backed Finance.
+                every purchase, sent straight to your Solana wallet. Not points, and not a token
+                we print. Actual equity exposure, collateralised 1:1 and issued by{' '}
+                {ISSUERS.join(' and ')}.
               </p>
 
               <div className="mt-8 flex flex-wrap items-center gap-3">
@@ -142,8 +143,8 @@ export default function LandingPage() {
                   detail="Tokens transfer to your own wallet address. There is no Stackd balance to withdraw from and nothing for us to freeze."
                 />
                 <Fact
-                  term="No new token"
-                  detail="Stackd does not mint anything. We hold a treasury of xStocks and send you some of it."
+                  term="The reward is never something we print"
+                  detail="Your cashback is a tokenized share Stackd buys and holds — we cannot mint it, inflate it, or decide what it's worth. The core reward never depends on a token we control."
                 />
                 <Fact
                   term="Verified in seconds"
@@ -156,8 +157,14 @@ export default function LandingPage() {
 
         {/* --- Closing CTA --- */}
         <section className="mx-auto w-full max-w-6xl px-5 py-20 text-center sm:px-8">
+          {/*
+            Deliberately brand-agnostic. The previous line ("your next coffee")
+            was a Starbucks reference that went stale the moment SBUXx turned
+            out to have no market. Naming a category here means rewriting the
+            hero every time the brand set changes — and it changes.
+          */}
           <h2 className="mx-auto max-w-lg font-display text-[2rem] font-light italic leading-tight text-ink sm:text-[2.5rem]">
-            Your next coffee can buy you a sliver of the company.
+            The receipts in your pocket are equity you never claimed.
           </h2>
           <div className="mt-8">
             <Link href="/app/submit" className="btn-primary px-6 py-3">
@@ -171,7 +178,7 @@ export default function LandingPage() {
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-5 py-8 sm:flex-row sm:items-center sm:justify-between sm:px-8">
           <Logo />
           <p className="max-w-lg text-xs leading-relaxed text-ink-subtle">
-            xStocks are issued by Backed Finance. Stackd is not a broker-dealer and does not
+            Tokenized shares are issued by Backed Finance and Backpack Securities. Stackd is not a broker-dealer and does not
             provide investment advice. Tokenized equities carry risk, including loss of principal.
           </p>
         </div>

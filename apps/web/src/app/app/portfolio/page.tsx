@@ -83,8 +83,8 @@ export default function PortfolioPage() {
 
       {portfolio.held.length > 0 && (
         <p className="mt-4 text-xs leading-relaxed text-ink-subtle">
-          Quantities reflect the Token-2022 scaled-UI multiplier that Backed Finance applies for
-          corporate actions, so they match what your wallet and Backed&apos;s own dashboard show.
+          Quantities reflect the Token-2022 scaled-UI multiplier issuers apply for corporate
+          actions, so they match what your wallet and the issuer&apos;s own dashboard show.
         </p>
       )}
     </>
