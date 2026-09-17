@@ -4,7 +4,12 @@ import { useEffect, useRef, useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { BRANDS, BRAND_BY_TICKER } from '@stackd/solana';
 import { useXStockPrices } from '@/hooks/useXStockData';
-import { verifyReceipt, type VerifyResponse } from '@/lib/verify';
+import {
+  confirmReceipt,
+  verifyReceipt,
+  type ConfirmResponse,
+  type VerifyResponse,
+} from '@/lib/verify';
 import { ConnectPrompt } from '@/components/ui/ConnectPrompt';
 import { BrandMark, SectionHeader } from '@/components/ui/primitives';
 import { formatTokenAmount, formatUsd } from '@/lib/format';
@@ -39,6 +44,9 @@ export function SubmitForm() {
   const [phase, setPhase] = useState(0);
   const [result, setResult] = useState<VerifyResponse | null>(null);
   const [requestError, setRequestError] = useState<string | null>(null);
+  const [claim, setClaim] = useState<ConfirmResponse | null>(null);
+  const [claiming, setClaiming] = useState(false);
+  const [claimError, setClaimError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Object URLs leak until revoked.
@@ -109,11 +117,28 @@ export function SubmitForm() {
     }
   }
 
+  async function claimReward() {
+    if (!result?.receiptId) return;
+
+    setClaiming(true);
+    setClaimError(null);
+    try {
+      setClaim(await confirmReceipt(result.receiptId));
+    } catch (error) {
+      setClaimError(error instanceof Error ? error.message : 'Payout failed.');
+    } finally {
+      setClaiming(false);
+    }
+  }
+
   function reset() {
     setFile(null);
     setResult(null);
     setRequestError(null);
     setFileError(null);
+    setClaim(null);
+    setClaimError(null);
+    setClaiming(false);
     setStage('idle');
   }
 
@@ -290,6 +315,10 @@ export function SubmitForm() {
                 result={result}
                 shares={shares}
                 priceKnown={price != null}
+                claim={claim}
+                claiming={claiming}
+                claimError={claimError}
+                onClaim={claimReward}
                 onReset={reset}
               />
             )}
@@ -348,11 +377,19 @@ function Result({
   result,
   shares,
   priceKnown,
+  claim,
+  claiming,
+  claimError,
+  onClaim,
   onReset,
 }: {
   result: VerifyResponse;
   shares: number | null;
   priceKnown: boolean;
+  claim: ConfirmResponse | null;
+  claiming: boolean;
+  claimError: string | null;
+  onClaim: () => void;
   onReset: () => void;
 }) {
   const brand = result.ticker ? BRAND_BY_TICKER[result.ticker] : undefined;
@@ -434,12 +471,21 @@ function Result({
         </p>
       )}
 
-      <button type="button" disabled className="btn-primary mt-5 w-full">
-        Claim {result.ticker}
-      </button>
-      <p className="mt-2.5 text-center text-2xs leading-relaxed text-ink-subtle">
-        Verification is live. The treasury transfer that pays this out lands next.
-      </p>
+      {claim ? (
+        <Claimed claim={claim} />
+      ) : (
+        <>
+          <button
+            type="button"
+            onClick={onClaim}
+            disabled={claiming || !result.receiptId}
+            className="btn-primary mt-5 w-full"
+          >
+            {claiming ? `Sending ${result.ticker}…` : `Claim ${result.ticker}`}
+          </button>
+          {claimError && <p className="mt-2.5 text-xs text-loss">{claimError}</p>}
+        </>
+      )}
 
       <button type="button" onClick={onReset} className="btn-ghost mt-2 w-full">
         Submit another
@@ -451,6 +497,65 @@ function Result({
         </p>
       )}
     </>
+  );
+}
+
+/**
+ * Landed payouts.
+ *
+ * Both legs confirmed shows two rows. A paused bonus shows one row plus a quiet
+ * note — deliberately not an error, because a refilling vault is a normal
+ * operating state and the user still got paid the thing they came for.
+ */
+function Claimed({ claim }: { claim: ConfirmResponse }) {
+  return (
+    <div className="mt-5">
+      <p className="label-caps">Sent</p>
+
+      <ul className="mt-2.5 space-y-2">
+        <PayoutRow
+          label={`${claim.xstock.ticker}${
+            claim.xstock.amount != null ? ` · ${formatTokenAmount(claim.xstock.amount)}` : ''
+          }`}
+          href={claim.xstock.solscan}
+        />
+        {claim.bonus && <PayoutRow label="STACKD bonus" href={claim.bonus.solscan} />}
+      </ul>
+
+      {claim.bonusPaused && (
+        <p className="mt-3 rounded-lg bg-sunken px-3 py-2 text-2xs leading-relaxed text-ink-muted">
+          Bonus paused — vault refilling. Your {claim.xstock.ticker} is on its way.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function PayoutRow({ label, href }: { label: string; href: string }) {
+  return (
+    <li className="flex items-center gap-2.5 rounded-lg bg-sunken px-3 py-2.5">
+      {/* Indigo, not green — green means "the number went up", not "it sent". */}
+      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary-soft">
+        <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden>
+          <path
+            d="M2.5 6.5l2.5 2.5 4.5-5"
+            stroke="#4F46E5"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </span>
+      <span className="num min-w-0 flex-1 truncate text-xs text-ink">{label}</span>
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="shrink-0 text-2xs font-medium text-primary hover:underline"
+      >
+        Solscan
+      </a>
+    </li>
   );
 }
 

@@ -8,13 +8,24 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./server": "./src/server.ts"
   },
   "files": [
     "src"
   ],
   "dependencies": {
     "@solana/spl-token": "^0.4.9",
-    "@solana/web3.js": "^1.95.4"
+    "@solana/web3.js": "^1.95.4",
+    "bs58": "^6.0.0"
+  },
+  "scripts": {
+    "test": "node --import tsx --test src/rewards.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "@types/node": "^20.16.11"
   }
 }

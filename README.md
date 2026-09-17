@@ -190,6 +190,54 @@ absent. Backpack is picked up automatically through Wallet Standard, so it needs
 entry. The default wallet-adapter modal is restyled to the brokerage palette in
 `globals.css` rather than shipping the stock purple sheet.
 
+## Reward engine
+
+`packages/solana/src/rewards.ts`. Two legs, deliberately separate code paths:
+
+| Leg | Token program | Multiplier | Failure mode |
+| --- | --- | --- | --- |
+| xStock | **Token-2022** | scaled-UI, must be inverted | hard error |
+| STACKD bonus | **legacy SPL** | none | returns `null`, not an error |
+
+They are not merged behind a generic helper on purpose. The moment one function
+serves both, someone passes `TOKEN_PROGRAM_ID` to an xStock ATA derivation and
+the payout lands at an address the user's wallet never reads.
+
+All Token-2022 amount maths routes through `resolveMultiplier` / `toRawAmount`
+in `scaled-amount.ts`. `computeRewardAmount()` is pure and directly tested.
+
+**Idempotency** is keyed on `receiptId`. `/verify-receipt` creates the record
+and returns the id; `/confirm-receipt` pays against it. A receipt that already
+carries a signature returns that signature without sending. Legs are also
+*claimed* before sending, so a double-click cannot produce two transfers.
+
+```bash
+npm test --workspace=@stackd/solana
+```
+
+Covers `test_idempotent_replay`, `test_price_resolution_fallback`,
+`test_vault_pause`, `test_multiplier_correctness` — the last is the regression
+test for the 10× NFLXx overpay this README warns about.
+
+### ⚠️ STACKD contradicts a project rule
+
+The brief says **"No custom token. Only xStocks from Backed Finance"**, and the
+live landing page tells users *"Not points. Not a token we invented"* and
+*"Stackd does not mint anything."* The STACKD bonus leg contradicts all three.
+
+The code ships disabled: leave `STACKD_MINT` blank and only the xStock leg runs,
+which the UI already handles as a normal outcome. Reconcile the rule and the
+copy before enabling it.
+
+### ⚠️ Persistence is in-memory
+
+`receipt-store.ts` ships `InMemoryReceiptStore` because the project still has no
+`DATABASE_URL`. For a payout system that is genuinely unsafe: process memory
+dies on deploy, so a paid receipt looks unpaid afterwards **and can be paid
+twice**. Swap in a Prisma implementation of `ReceiptStore` before real money
+moves, and implement `claimLeg` as a conditional `UPDATE ... WHERE txSignature
+IS NULL` rather than read-then-write.
+
 ## Status
 
 Frontend and receipt verification are live. `/app/submit` uploads to the real endpoint and
