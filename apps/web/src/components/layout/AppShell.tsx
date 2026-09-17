@@ -92,8 +92,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         <footer className="border-t border-line px-4 py-5 text-xs text-ink-subtle sm:px-6 lg:px-8">
           <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-x-4 gap-y-1">
             <span>
-              xStocks are issued by Backed Finance. Stackd is not a broker and does not give
-              investment advice.
+              Tokenized shares are issued by Backed Finance and Backpack Securities. Stackd is
+              not a broker and does not give investment advice.
             </span>
           </div>
         </footer>
