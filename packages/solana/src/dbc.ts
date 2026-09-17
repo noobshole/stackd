@@ -67,8 +67,33 @@ export const USDC_DECIMALS = 6;
 export const STACKD_DECIMALS = 6;
 export const STACKD_TOTAL_SUPPLY = 1_000_000_000;
 
-/** Graduate at 750 USDC of quote raised. */
+/** Graduate at 750 USDC of quote raised. Mainnet value, always. */
 export const MIGRATION_QUOTE_THRESHOLD_USDC = 750;
+
+/**
+ * Devnet-only lower threshold, so graduation is actually reachable.
+ *
+ * Circle's devnet faucet drips roughly 10 USDC/hour, so raising 750 test USDC
+ * would take days. The property under test is *that the curve graduates and
+ * migration fires at all* — a config error shows up identically at 50 USDC as
+ * at 750. The number itself is not what's being validated.
+ *
+ * This applies when the config is BUILT, not when the simulation runs: the
+ * threshold is baked into the pool at creation and cannot be changed later.
+ * Ignored on mainnet, which always uses 750.
+ */
+export function resolveMigrationThresholdUsdc(cluster: 'devnet' | 'mainnet'): number {
+  if (cluster !== 'devnet') return MIGRATION_QUOTE_THRESHOLD_USDC;
+
+  const raw = process.env.SIM_THRESHOLD_OVERRIDE_USDC?.trim();
+  if (!raw) return MIGRATION_QUOTE_THRESHOLD_USDC;
+
+  const override = Number(raw);
+  if (!Number.isFinite(override) || override <= 0) {
+    throw new Error(`SIM_THRESHOLD_OVERRIDE_USDC must be a positive number, got "${raw}".`);
+  }
+  return override;
+}
 
 /**
  * The 15% team/liquidity bucket, expressed the only way DBC supports it:
@@ -95,7 +120,8 @@ export const TRADING_FEE_BPS = 100;
  * is the "gentle/linear" shape we want — it rewards sustained demand
  * rather than whoever buys first.
  */
-export function buildStackdCurveConfig() {
+export function buildStackdCurveConfig(cluster: 'devnet' | 'mainnet' = 'devnet') {
+  const thresholdUsdc = resolveMigrationThresholdUsdc(cluster);
   return buildCurve({
     token: {
       tokenType: TokenType.SPLToken, // legacy SPL — $STACKD is not Token-2022
@@ -152,7 +178,7 @@ export function buildStackdCurveConfig() {
     },
     activationType: ActivationType.Timestamp,
     percentageSupplyOnMigration: PERCENTAGE_SUPPLY_ON_MIGRATION,
-    migrationQuoteThreshold: MIGRATION_QUOTE_THRESHOLD_USDC * 10 ** USDC_DECIMALS,
+    migrationQuoteThreshold: thresholdUsdc * 10 ** USDC_DECIMALS,
   });
 }
 

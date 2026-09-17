@@ -22,7 +22,7 @@
 
 import { Keypair, sendAndConfirmTransaction } from '@solana/web3.js';
 import {
-  MIGRATION_QUOTE_THRESHOLD_USDC,
+  resolveMigrationThresholdUsdc,
   PERCENTAGE_SUPPLY_ON_MIGRATION,
   STACKD_TOTAL_SUPPLY,
   TEAM_LEFTOVER_PERCENTAGE,
@@ -39,6 +39,7 @@ import {
   loadOrCreateKeypair,
   requireConfirm,
   resolveCluster,
+  assertKeyUsableOn,
 } from './_shared.js';
 
 async function main(): Promise<void> {
@@ -47,11 +48,14 @@ async function main(): Promise<void> {
 
   // The payer is both partner (config owner, fee claimer) and pool creator.
   const payer = loadKeypair('DBC_PAYER_PRIVATE_KEY');
+  assertKeyUsableOn(payer, cluster);
   const team = loadOrCreateKeypair('STACKD_TEAM_PRIVATE_KEY', 'team/liquidity keypair');
 
   const config = Keypair.generate();
   const baseMint = Keypair.generate();
   const quoteMint = USDC_MINT[cluster];
+
+  const threshold = resolveMigrationThresholdUsdc(cluster);
 
   const pool = deriveStackdPoolAddress(
     quoteMint,
@@ -69,7 +73,7 @@ async function main(): Promise<void> {
     'total supply': STACKD_TOTAL_SUPPLY.toLocaleString('en-US'),
     'leftover': `${TEAM_LEFTOVER_PERCENTAGE}%`,
     'on migration': `${PERCENTAGE_SUPPLY_ON_MIGRATION}%`,
-    'graduates at': `${MIGRATION_QUOTE_THRESHOLD_USDC} USDC`,
+    'graduates at': `${threshold} USDC${threshold !== 750 ? '  (devnet override)' : ''}`,
     'mint authority': 'Immutable (no future minting, ever)',
   });
 
@@ -77,7 +81,7 @@ async function main(): Promise<void> {
   requireConfirm('--execute');
 
   const client = getDbcClient(connection);
-  const curveConfig = buildStackdCurveConfig();
+  const curveConfig = buildStackdCurveConfig(cluster);
 
   // --- 1. Config -----------------------------------------------------------
   console.log('  creating config…');
