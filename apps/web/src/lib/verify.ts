@@ -3,6 +3,8 @@
 export interface VerifyResponse {
   flagged: boolean;
   reason?: string;
+  /** Present only on an accepted receipt. Required to claim. */
+  receiptId?: string;
   brand: string | null;
   ticker: string | null;
   amountUsd: number | null;
@@ -50,6 +52,52 @@ export async function verifyReceipt(file: File, walletAddress: string): Promise<
   const payload = parsed as VerifyResponse;
   if (typeof payload?.flagged !== 'boolean') {
     throw new Error(`Verification returned an unexpected response (${res.status}).`);
+  }
+
+  return payload;
+}
+
+// ---------------------------------------------------------------------------
+// Claim
+// ---------------------------------------------------------------------------
+
+export interface ConfirmResponse {
+  receiptId: string;
+  xstock: {
+    signature: string;
+    solscan: string;
+    ticker: string;
+    amount: number | null;
+  };
+  /** Null when the bonus vault is paused. This is normal, not a failure. */
+  bonus: { signature: string; solscan: string } | null;
+  bonusPaused: boolean;
+}
+
+/**
+ * Claim a verified receipt.
+ *
+ * Throws only when the xStock leg failed — a paused bonus comes back as a
+ * successful response with `bonus: null`.
+ */
+export async function confirmReceipt(receiptId: string): Promise<ConfirmResponse> {
+  let res: Response;
+  try {
+    res = await fetch(`${apiBase()}/confirm-receipt`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ receiptId }),
+    });
+  } catch {
+    throw new Error('Could not reach the payout service.');
+  }
+
+  const payload = (await res.json().catch(() => null)) as
+    | (ConfirmResponse & { error?: string })
+    | null;
+
+  if (!res.ok || !payload?.xstock?.signature) {
+    throw new Error(payload?.error ?? `Payout failed (${res.status}).`);
   }
 
   return payload;

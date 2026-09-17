@@ -6,9 +6,11 @@
  * transfer happens on a separate endpoint.
  */
 
+import { randomUUID } from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
 import { PublicKey } from '@solana/web3.js';
+import { defaultReceiptStore } from '@stackd/solana/server';
 import { ClaudeUnavailableError, extractReceipt } from '../lib/claude.js';
 import { matchBrand } from '../lib/match-brand.js';
 import {
@@ -54,6 +56,8 @@ interface VerifyResponse {
   ticker: string | null;
   amountUsd: number | null;
   confidence: number | null;
+  /** Present only on an accepted receipt. The key POST /confirm-receipt needs. */
+  receiptId?: string;
   /** Cashback rate for the matched brand, percent. */
   pctBack?: number;
   /** amountUsd * pctBack / 100. The frontend converts to shares via Jupiter. */
@@ -249,8 +253,23 @@ verifyReceiptRouter.post(
     const amountUsd = Math.round(extraction.total_amount * 100) / 100;
     const cashbackUsd = Math.round(((amountUsd * match.brand.pctBack) / 100) * 1e6) / 1e6;
 
+    // Persist before responding: the id we hand back is the idempotency key the
+    // payout leg keys off, so it has to exist in the store first.
+    const receiptId = randomUUID();
+    await defaultReceiptStore.create({
+      id: receiptId,
+      walletAddress,
+      brandName: match.brand.name,
+      brandTicker: match.brand.ticker,
+      amountUsd,
+      xstockAmount: null,
+      imageUrl: null, // ROADMAP: Cloudinary upload
+      claudeConfidence: extraction.confidence,
+    });
+
     const response: VerifyResponse = {
       flagged: false,
+      receiptId,
       brand: match.brand.name,
       ticker: match.brand.ticker,
       amountUsd,

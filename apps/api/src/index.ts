@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import { BRANDS } from '@stackd/solana';
 import { verifyReceiptRouter } from './routes/verify-receipt.js';
+import { confirmReceiptRouter } from './routes/confirm-receipt.js';
 import { RECEIPT_MODEL } from './lib/claude.js';
 import { MAX_PER_WINDOW } from './lib/submissions.js';
 
@@ -35,6 +36,7 @@ app.get('/health', (_req, res) => {
 });
 
 app.use(verifyReceiptRouter);
+app.use(confirmReceiptRouter);
 
 app.use((_req, res) => {
   res.status(404).json({ flagged: true, reason: 'Not found.' });
