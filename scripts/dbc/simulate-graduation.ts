@@ -27,7 +27,7 @@ import {
 import {
   banner,
   getConnection,
-  loadKeypair,
+  requireKeypair,
   requireConfirm,
   resolveCluster,
 } from './_shared.js';
@@ -46,7 +46,7 @@ async function main(): Promise<void> {
   }
 
   const connection = getConnection(cluster);
-  const buyer = loadKeypair('DBC_PAYER_PRIVATE_KEY');
+  const buyer = requireKeypair('DBC_PAYER_PRIVATE_KEY', 'devnet buyer funding the simulated swaps');
   const poolAddress = process.env.DBC_POOL_ADDRESS?.trim();
   if (!poolAddress) throw new Error('DBC_POOL_ADDRESS is not set. Run dbc:launch first.');
 
