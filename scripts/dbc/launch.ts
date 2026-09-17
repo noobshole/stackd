@@ -35,8 +35,7 @@ import {
   assertFunded,
   banner,
   getConnection,
-  loadKeypair,
-  loadOrCreateKeypair,
+  requireKeypair,
   requireConfirm,
   resolveCluster,
   assertKeyUsableOn,
@@ -47,9 +46,10 @@ async function main(): Promise<void> {
   const connection = getConnection(cluster);
 
   // The payer is both partner (config owner, fee claimer) and pool creator.
-  const payer = loadKeypair('DBC_PAYER_PRIVATE_KEY');
+  const payer = requireKeypair('DBC_PAYER_PRIVATE_KEY', 'config owner, pool creator and fee claimer');
   assertKeyUsableOn(payer, cluster);
-  const team = loadOrCreateKeypair('STACKD_TEAM_PRIVATE_KEY', 'team/liquidity keypair');
+  const team = requireKeypair('STACKD_TEAM_PRIVATE_KEY', 'team wallet that receives the 15% leftover after migration');
+  assertKeyUsableOn(team, cluster);
 
   const config = Keypair.generate();
   const baseMint = Keypair.generate();

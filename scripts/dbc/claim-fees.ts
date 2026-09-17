@@ -19,7 +19,7 @@ import { getDbcClient, USDC_DECIMALS } from '../../packages/solana/src/dbc.js';
 import {
   banner,
   getConnection,
-  loadKeypair,
+  requireKeypair,
   requireConfirm,
   resolveCluster,
 } from './_shared.js';
@@ -30,7 +30,7 @@ async function main(): Promise<void> {
   const cluster = resolveCluster();
   const connection = getConnection(cluster);
 
-  const creator = loadKeypair('DBC_PAYER_PRIVATE_KEY');
+  const creator = requireKeypair('DBC_PAYER_PRIVATE_KEY', 'pool creator claiming the fees');
   const poolAddress = process.env.DBC_POOL_ADDRESS?.trim();
   const vaultAddress = process.env.STACKD_VAULT_PUBLIC_KEY?.trim();
 
