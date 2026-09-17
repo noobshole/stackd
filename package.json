@@ -16,7 +16,8 @@
     "dbc:launch": "tsx scripts/dbc/launch.ts",
     "dbc:claim-fees": "tsx scripts/dbc/claim-fees.ts",
     "dbc:simulate": "tsx scripts/dbc/simulate-graduation.ts",
-    "test": "npm test --workspace=@stackd/solana"
+    "test": "npm test --workspace=@stackd/solana",
+    "dbc:keygen": "tsx scripts/dbc/new-keypair.ts"
   },
   "engines": {
     "node": ">=18.17"

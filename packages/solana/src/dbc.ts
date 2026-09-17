@@ -50,9 +50,17 @@ import {
 /** Same program id on mainnet and devnet, per Meteora docs. */
 export const DBC_PROGRAM_ID = 'dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN';
 
+/**
+ * Both verified live on 2026-09-17 (6 decimals each).
+ *
+ * The devnet entry is Circle's USDC-Devnet specifically, not the older
+ * spl-token-faucet mint — Circle publishes a faucet for it, so the devnet
+ * simulation can actually be funded. A quote mint nobody can obtain makes the
+ * graduation test unrunnable, which is the one test worth running.
+ */
 export const USDC_MINT = {
   mainnet: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
-  devnet: 'Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr',
+  devnet: '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
 } as const;
 
 export const USDC_DECIMALS = 6;
