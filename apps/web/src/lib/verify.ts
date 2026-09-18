@@ -14,6 +14,12 @@ export interface VerifyResponse {
   merchantName?: string;
   date?: string;
   currency?: string;
+  /** The total as printed, in `currency`. amountUsd is this converted. */
+  originalAmount?: number;
+  /** Units of `currency` per 1 USD (ECB reference). 1 for USD receipts. */
+  fxRate?: number;
+  /** Publication date of fxRate. Null for USD receipts. */
+  fxRateDate?: string | null;
   submissionsRemaining?: number;
 }
 

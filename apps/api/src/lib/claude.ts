@@ -28,7 +28,10 @@ export const ExtractionSchema = z.object({
     .describe('The store or brand name exactly as printed on the receipt.'),
   total_amount: z
     .number()
-    .describe('The final total actually paid, as a number. No currency symbol.'),
+    .describe(
+      'The final total actually paid, as a plain number in the receipt currency. ' +
+        'Read separators by locale: "Rp 50.000" is 50000, "€1.234,50" is 1234.5.',
+    ),
   currency: z
     .string()
     .describe(
