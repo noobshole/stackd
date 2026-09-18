@@ -178,7 +178,11 @@ export function buildStackdCurveConfig(cluster: 'devnet' | 'mainnet' = 'devnet')
     },
     activationType: ActivationType.Timestamp,
     percentageSupplyOnMigration: PERCENTAGE_SUPPLY_ON_MIGRATION,
-    migrationQuoteThreshold: thresholdUsdc * 10 ** USDC_DECIMALS,
+    // Whole USDC, NOT base units. buildCurve scales it by 10^tokenQuoteDecimal
+    // itself (convertToLamports), same as totalTokenSupply and leftover above.
+    // Pre-scaling here made the first devnet pool graduate at 20,000,000 USDC
+    // instead of 20, and would have set mainnet at 750,000,000.
+    migrationQuoteThreshold: thresholdUsdc,
   });
 }
 
