@@ -34,6 +34,7 @@ import {
 import {
   assertFunded,
   banner,
+  fail,
   getConnection,
   requireKeypair,
   requireConfirm,
@@ -78,7 +79,7 @@ async function main(): Promise<void> {
   });
 
   await assertFunded(connection, payer.publicKey);
-  requireConfirm('--execute');
+  if (!requireConfirm('--execute')) return;
 
   const client = getDbcClient(connection);
   const curveConfig = buildStackdCurveConfig(cluster);
@@ -129,7 +130,4 @@ async function main(): Promise<void> {
   console.log('  or the bonus leg will keep pausing (which is safe, by design).\n');
 }
 
-main().catch((error) => {
-  console.error(`\n  FAILED: ${error instanceof Error ? error.message : String(error)}\n`);
-  process.exit(1);
-});
+main().catch(fail);

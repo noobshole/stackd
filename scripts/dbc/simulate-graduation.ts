@@ -26,6 +26,7 @@ import {
 } from '../../packages/solana/src/dbc.js';
 import {
   banner,
+  fail,
   getConnection,
   requireKeypair,
   requireConfirm,
@@ -64,7 +65,7 @@ async function main(): Promise<void> {
     'start progress': `${(startProgress * 100).toFixed(2)}%`,
   });
 
-  requireConfirm('--execute');
+  if (!requireConfirm('--execute')) return;
 
   let graduated = false;
 
@@ -133,7 +134,8 @@ async function main(): Promise<void> {
   if (!graduated) {
     console.log('\n  Curve did NOT reach the threshold within the buy budget.');
     console.log('  Raise SIM_MAX_BUYS, or check migrationQuoteThreshold in dbc.ts.\n');
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
 
   // --- Confirm migration actually fires ------------------------------------
@@ -160,7 +162,4 @@ async function main(): Promise<void> {
   console.log('  Graduation verified end to end. Config is safe to reuse on mainnet.\n');
 }
 
-main().catch((error) => {
-  console.error(`\n  FAILED: ${error instanceof Error ? error.message : String(error)}\n`);
-  process.exit(1);
-});
+main().catch(fail);
