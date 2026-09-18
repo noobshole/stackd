@@ -7,9 +7,15 @@
  * network and the addresses it is about to touch before doing anything.
  */
 
-import 'dotenv/config';
+import path from 'node:path';
+import { config as loadEnv } from 'dotenv';
 import { Connection, Keypair, PublicKey } from '@solana/web3.js';
 import bs58 from 'bs58';
+
+// The secrets live with the API in apps/api/.env, but `npm run` starts these
+// scripts at the repo root. `dotenv/config` only reads ./.env, which does not
+// exist there, so every variable silently came back unset.
+loadEnv({ path: path.resolve(__dirname, '../../apps/api/.env') });
 
 export type Cluster = 'devnet' | 'mainnet';
 
@@ -139,12 +145,24 @@ export function banner(title: string, cluster: Cluster, rows: Record<string, str
   console.log('');
 }
 
-/** Require an explicit confirmation flag for anything that spends or is permanent. */
-export function requireConfirm(flag: string): void {
-  if (!process.argv.includes(flag)) {
-    console.log(`  Dry run. Re-run with ${flag} to execute.\n`);
-    process.exit(0);
-  }
+/**
+ * Require an explicit confirmation flag for anything that spends or is permanent.
+ * Returns false on a dry run; the caller returns instead of exiting.
+ *
+ * Never process.exit() in these scripts: on Node 24 / Windows, exiting while an
+ * RPC keep-alive socket is closing trips a libuv assertion and crashes with
+ * 0xC0000409 — after a perfectly good dry run.
+ */
+export function requireConfirm(flag: string): boolean {
+  if (process.argv.includes(flag)) return true;
+  console.log(`  Dry run. Re-run with ${flag} to execute.\n`);
+  return false;
+}
+
+/** Report a failure and set a non-zero exit code without force-exiting. */
+export function fail(error: unknown): void {
+  console.error(`\n  FAILED: ${error instanceof Error ? error.message : String(error)}\n`);
+  process.exitCode = 1;
 }
 
 export async function assertFunded(

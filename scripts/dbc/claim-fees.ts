@@ -18,6 +18,7 @@ import { PublicKey, sendAndConfirmTransaction } from '@solana/web3.js';
 import { getDbcClient, USDC_DECIMALS } from '../../packages/solana/src/dbc.js';
 import {
   banner,
+  fail,
   getConnection,
   requireKeypair,
   requireConfirm,
@@ -59,7 +60,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  requireConfirm('--execute');
+  if (!requireConfirm('--execute')) return;
 
   const tx = await client.creator.claimCreatorTradingFeeToReceiver({
     creator: creator.publicKey,
@@ -87,7 +88,4 @@ async function main(): Promise<void> {
   console.log('  before sendStackdBonus() can pay anything.\n');
 }
 
-main().catch((error) => {
-  console.error(`\n  FAILED: ${error instanceof Error ? error.message : String(error)}\n`);
-  process.exit(1);
-});
+main().catch(fail);
