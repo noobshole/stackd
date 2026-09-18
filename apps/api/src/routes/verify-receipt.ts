@@ -190,11 +190,21 @@ verifyReceiptRouter.post(
     }
 
     /**
-     * Currency guard. `total_amount` is in whatever the receipt used, and there
-     * is no FX source wired up. Treating a 50,000 IDR receipt as $50,000 would
-     * pay out roughly $2,000 of stock for a cup of coffee, so anything that is
-     * not USD is refused rather than assumed.
-     * ROADMAP: add an FX rate lookup and convert instead of rejecting.
+     * Currency guard. `total_amount` is in whatever currency the receipt used,
+     * and there is no FX source wired up, so anything not USD is refused rather
+     * than assumed.
+     *
+     * The MAX_RECEIPT_USD cap below is not a substitute. A 50,000 IDR receipt
+     * misread as $50,000 would hit the cap and be refused anyway. The ones that
+     * slip under it are small-unit currencies: ¥900 of coffee (roughly $6) read
+     * as $900 pays $36 at a 4% brand instead of about $0.24 — over 100x.
+     *
+     * This guard is only as good as the `currency` Claude reports. "$" alone is
+     * also CAD, AUD, SGD, HKD, MXN, TWD and others, so the extraction prompt
+     * tells Claude to decide from the store's country, not the symbol.
+     *
+     * ROADMAP: add an FX rate lookup and convert instead of rejecting. Convert
+     * BEFORE the MAX_RECEIPT_USD check so the cap stays in dollars.
      */
     if (extraction.currency?.toUpperCase() !== 'USD') {
       res.status(200).json(

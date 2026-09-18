@@ -29,7 +29,12 @@ export const ExtractionSchema = z.object({
   total_amount: z
     .number()
     .describe('The final total actually paid, as a number. No currency symbol.'),
-  currency: z.string().describe('ISO 4217 three-letter code, e.g. USD, IDR, EUR.'),
+  currency: z
+    .string()
+    .describe(
+      'ISO 4217 three-letter code of the currency actually paid, e.g. USD, IDR, EUR. ' +
+        'Decided from where the store is, not from the symbol alone.',
+    ),
   date: z.string().describe('Transaction date as YYYY-MM-DD.'),
   looks_authentic: z
     .boolean()
@@ -59,6 +64,13 @@ Judging authenticity, weigh:
 Set looks_authentic false when you see real evidence of fabrication, not merely
 because an image is low quality — a blurry phone photo of a genuine receipt is
 still genuine. Let confidence carry legibility problems instead.
+
+Currency decides how much is paid out, so never infer it from the symbol alone.
+"$" is used by USD, CAD, AUD, NZD, SGD, HKD, MXN, TWD and others, and "¥" by both
+JPY and CNY. Decide from the store's address, country, language, phone format and
+tax lines (GST, HST, PPN, VAT, IVA). Report USD only when the store is in the
+United States or the receipt explicitly says USD. If "$" is the only clue and
+nothing indicates the country, do not default to USD — lower confidence instead.
 
 Set confidence to how sure you are of the extracted fields overall. If the total
 is unreadable, that is low confidence, not a guess.`;
