@@ -12,7 +12,7 @@ import {
 } from '@/lib/verify';
 import { ConnectPrompt } from '@/components/ui/ConnectPrompt';
 import { BrandMark, SectionHeader } from '@/components/ui/primitives';
-import { formatTokenAmount, formatUsd } from '@/lib/format';
+import { formatMoney, formatTokenAmount, formatUsd } from '@/lib/format';
 
 const MAX_BYTES = 10 * 1024 * 1024;
 const ACCEPTED = ['image/jpeg', 'image/png', 'application/pdf'];
@@ -393,6 +393,8 @@ function Result({
   onReset: () => void;
 }) {
   const brand = result.ticker ? BRAND_BY_TICKER[result.ticker] : undefined;
+  const converted =
+    result.currency != null && result.currency !== 'USD' && result.originalAmount != null;
 
   if (result.flagged) {
     return (
@@ -453,7 +455,15 @@ function Result({
       </div>
 
       <dl className="num mt-4 space-y-2.5 text-sm">
-        <Row label="Receipt total" value={formatUsd(result.amountUsd)} muted />
+        <Row
+          label="Receipt total"
+          value={
+            converted
+              ? `${formatMoney(result.originalAmount, result.currency)} ≈ ${formatUsd(result.amountUsd)}`
+              : formatUsd(result.amountUsd)
+          }
+          muted
+        />
         <Row label={`Cashback (${result.pctBack}%)`} value={formatUsd(result.cashbackUsd)} muted />
         <div className="border-t border-line pt-2.5">
           <div className="flex items-baseline justify-between gap-3">
@@ -464,6 +474,13 @@ function Result({
           </div>
         </div>
       </dl>
+
+      {converted && result.fxRate != null && (
+        <p className="num mt-2 text-2xs leading-relaxed text-ink-subtle">
+          Converted at 1 USD = {result.fxRate.toLocaleString('en-US')} {result.currency}
+          {result.fxRateDate && `, ECB reference rate for ${result.fxRateDate}`}.
+        </p>
+      )}
 
       {!priceKnown && (
         <p className="mt-2 text-2xs leading-relaxed text-ink-subtle">

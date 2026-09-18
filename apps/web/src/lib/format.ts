@@ -19,6 +19,30 @@ export function formatUsd(value: number | null | undefined, fallback = '—'): s
   return usd.format(value);
 }
 
+/**
+ * A receipt total in its own currency: "IDR 50,000", "¥900", "SGD 12.50".
+ * Whole amounts drop the decimals — nobody's rupiah receipt says ",00".
+ */
+export function formatMoney(
+  value: number | null | undefined,
+  currency: string | null | undefined,
+  fallback = '—',
+): string {
+  if (value == null || !Number.isFinite(value) || !currency) return fallback;
+  const whole = Number.isInteger(value);
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: whole ? 0 : 2,
+      maximumFractionDigits: 2,
+    }).format(value);
+  } catch {
+    // Intl rejects codes it does not know; show the number and code as-is.
+    return `${value.toLocaleString('en-US')} ${currency}`;
+  }
+}
+
 export function formatUsdCompact(value: number | null | undefined, fallback = '—'): string {
   if (value == null || !Number.isFinite(value)) return fallback;
   return usdCompact.format(value);

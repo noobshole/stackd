@@ -12,6 +12,7 @@ import multer from 'multer';
 import { PublicKey } from '@solana/web3.js';
 import { defaultReceiptStore } from '@stackd/solana/server';
 import { ClaudeUnavailableError, extractReceipt } from '../lib/claude.js';
+import { FxUnavailableError, UnsupportedCurrencyError, toUsd } from '../lib/fx.js';
 import { matchBrand } from '../lib/match-brand.js';
 import {
   MAX_PER_WINDOW,
@@ -66,6 +67,12 @@ interface VerifyResponse {
   merchantName?: string;
   date?: string;
   currency?: string;
+  /** The total as printed, in `currency`. amountUsd is this converted. */
+  originalAmount?: number;
+  /** Units of `currency` per 1 USD (ECB reference). 1 for USD receipts. */
+  fxRate?: number;
+  /** Publication date of fxRate. Null for USD receipts. */
+  fxRateDate?: string | null;
   submissionsRemaining?: number;
 }
 
@@ -189,33 +196,6 @@ verifyReceiptRouter.post(
       return;
     }
 
-    /**
-     * Currency guard. `total_amount` is in whatever currency the receipt used,
-     * and there is no FX source wired up, so anything not USD is refused rather
-     * than assumed.
-     *
-     * The MAX_RECEIPT_USD cap below is not a substitute. A 50,000 IDR receipt
-     * misread as $50,000 would hit the cap and be refused anyway. The ones that
-     * slip under it are small-unit currencies: ¥900 of coffee (roughly $6) read
-     * as $900 pays $36 at a 4% brand instead of about $0.24 — over 100x.
-     *
-     * This guard is only as good as the `currency` Claude reports. "$" alone is
-     * also CAD, AUD, SGD, HKD, MXN, TWD and others, so the extraction prompt
-     * tells Claude to decide from the store's country, not the symbol.
-     *
-     * ROADMAP: add an FX rate lookup and convert instead of rejecting. Convert
-     * BEFORE the MAX_RECEIPT_USD check so the cap stays in dollars.
-     */
-    if (extraction.currency?.toUpperCase() !== 'USD') {
-      res.status(200).json(
-        rejection(
-          `${extraction.currency ?? 'That currency'} receipts aren't supported yet — USD only for now.`,
-          { confidence: extraction.confidence, ...seen },
-        ),
-      );
-      return;
-    }
-
     if (!Number.isFinite(extraction.total_amount) || extraction.total_amount <= 0) {
       res.status(200).json(
         rejection('No valid total could be read from this receipt.', {
@@ -226,11 +206,64 @@ verifyReceiptRouter.post(
       return;
     }
 
-    if (extraction.total_amount > MAX_RECEIPT_USD) {
+    /**
+     * Currency -> USD. `total_amount` is in whatever currency the receipt used;
+     * every check after this point, and the payout, works in dollars.
+     *
+     * This must run BEFORE the MAX_RECEIPT_USD cap. Skipping it is not caught
+     * by the cap: ¥900 of coffee (roughly $6) read as $900 slips under $1,000
+     * and pays $36 at a 4% brand instead of about $0.24.
+     *
+     * Conversion is only as good as the `currency` Claude reports. "$" alone is
+     * also CAD, AUD, SGD, HKD, MXN, TWD and others, so the extraction prompt
+     * tells Claude to decide from the store's country, not the symbol.
+     */
+    let conversion;
+    try {
+      conversion = await toUsd(extraction.total_amount, extraction.currency);
+    } catch (error) {
+      if (error instanceof UnsupportedCurrencyError) {
+        res.status(200).json(
+          rejection(error.message, { confidence: extraction.confidence, ...seen }),
+        );
+        return;
+      }
+      // Could not price it. Our failure, not theirs — hand the quota slot back,
+      // and never fall back to treating the total as dollars.
+      releaseAttempt(walletAddress, attemptToken);
+      const reason =
+        error instanceof FxUnavailableError
+          ? `${error.message} Try again shortly.`
+          : 'Something went wrong converting that receipt.';
+      res.status(502).json(rejection(reason, { confidence: extraction.confidence, ...seen }));
+      return;
+    }
+
+    const amountUsd = Math.round(conversion.amountUsd * 100) / 100;
+    const fx = {
+      currency: conversion.currency,
+      originalAmount: conversion.originalAmount,
+      fxRate: conversion.rate,
+      fxRateDate: conversion.rateDate,
+    };
+
+    if (amountUsd < 0.01) {
+      res.status(200).json(
+        rejection('That receipt total is too small to earn cashback.', {
+          confidence: extraction.confidence,
+          ...seen,
+          ...fx,
+        }),
+      );
+      return;
+    }
+
+    if (amountUsd > MAX_RECEIPT_USD) {
       res.status(200).json(
         rejection(`Receipts over $${MAX_RECEIPT_USD.toLocaleString('en-US')} need manual review.`, {
           confidence: extraction.confidence,
           ...seen,
+          ...fx,
         }),
       );
       return;
@@ -241,17 +274,21 @@ verifyReceiptRouter.post(
       res.status(200).json(
         rejection(
           `"${extraction.merchant_name}" isn't one of the brands Stackd supports yet.`,
-          { confidence: extraction.confidence, ...seen },
+          { confidence: extraction.confidence, ...seen, ...fx },
         ),
       );
       return;
     }
 
+    // Duplicates key on the total as printed, not the converted USD. The rate
+    // refreshes daily, so the same IDR receipt resubmitted tomorrow would
+    // convert to a slightly different dollar amount and slip past a USD key.
     if (isDuplicate(walletAddress, match.brand.slug, extraction.total_amount)) {
       res.status(409).json(
         rejection('This receipt has already been claimed in the last 24 hours.', {
           confidence: extraction.confidence,
           ...seen,
+          ...fx,
         }),
       );
       return;
@@ -260,7 +297,6 @@ verifyReceiptRouter.post(
     // --- Accepted -----------------------------------------------------------
     recordAccepted(walletAddress, match.brand.slug, extraction.total_amount);
 
-    const amountUsd = Math.round(extraction.total_amount * 100) / 100;
     const cashbackUsd = Math.round(((amountUsd * match.brand.pctBack) / 100) * 1e6) / 1e6;
 
     // Persist before responding: the id we hand back is the idempotency key the
@@ -272,6 +308,10 @@ verifyReceiptRouter.post(
       brandName: match.brand.name,
       brandTicker: match.brand.ticker,
       amountUsd,
+      originalAmount: fx.originalAmount,
+      originalCurrency: fx.currency,
+      fxRate: fx.fxRate,
+      fxRateDate: fx.fxRateDate,
       xstockAmount: null,
       imageUrl: null, // ROADMAP: Cloudinary upload
       claudeConfidence: extraction.confidence,
@@ -287,6 +327,7 @@ verifyReceiptRouter.post(
       pctBack: match.brand.pctBack,
       cashbackUsd,
       ...seen,
+      ...fx,
     };
 
     res.status(200).json(response);

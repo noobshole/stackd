@@ -27,7 +27,18 @@ export interface ReceiptRecord {
   walletAddress: string;
   brandName: string;
   brandTicker: string;
+  /** Converted from originalAmount at fxRate. Everything downstream pays on this. */
   amountUsd: number;
+  /**
+   * The audit trail for amountUsd: the total as printed, its currency, and the
+   * rate it was converted at. Optional only so older rows and tests still fit.
+   */
+  originalAmount?: number;
+  originalCurrency?: string;
+  /** Units of originalCurrency per 1 USD. 1 for USD receipts. */
+  fxRate?: number;
+  /** Publication date of fxRate (YYYY-MM-DD). Null for USD receipts. */
+  fxRateDate?: string | null;
   xstockAmount: number | null;
   imageUrl: string | null;
   claudeConfidence: number | null;
