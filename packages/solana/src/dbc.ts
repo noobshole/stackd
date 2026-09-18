@@ -33,6 +33,7 @@ import {
   ActivationType,
   BaseFeeMode,
   CollectFeeMode,
+  DAMM_V2_MIGRATION_FEE_ADDRESS,
   DammV2BaseFeeMode,
   DammV2DynamicFeeMode,
   DynamicBondingCurveClient,
@@ -44,7 +45,10 @@ import {
   TokenDecimal,
   TokenType,
   buildCurve,
+  createDammV2Program,
+  deriveDammV2PoolAddress,
   deriveDbcPoolAddress,
+  getPriceFromSqrtPrice,
 } from '@meteora-ag/dynamic-bonding-curve-sdk';
 
 /** Same program id on mainnet and devnet, per Meteora docs. */
@@ -209,14 +213,20 @@ export function deriveStackdPoolAddress(
 /**
  * Current $STACKD price in USD.
  *
- * Quotes a small USDC-in swap and divides, which gives the effective marginal
- * price on the curve. The quote token is USDC, so the result is already
+ * Before graduation: quotes a small USDC-in swap on the curve and divides,
+ * which gives the effective marginal price. After graduation the curve stops
+ * trading, so the price comes from the DAMM v2 pool the liquidity migrated
+ * into. Without that second branch, graduating — the success case — would
+ * pause the bonus leg forever.
+ *
+ * The quote token is USDC either way, so the result is already
  * dollar-denominated — no second oracle hop, and it matches the dollar-based
  * reward maths used everywhere else.
  *
  * Returns null rather than throwing or guessing when the pool is unreachable or
- * unconfigured. Callers treat null exactly like a paused vault: the bonus leg
- * skips, and the xStock payout is untouched.
+ * unconfigured, or in the short window between graduation and migration.
+ * Callers treat null exactly like a paused vault: the bonus leg skips, and the
+ * xStock payout is untouched.
  */
 export async function getDbcQuotePrice(
   connection?: Connection,
@@ -236,6 +246,10 @@ export async function getDbcQuotePrice(
 
     const config = await client.state.getPoolConfig(virtualPool.poolState.config);
     if (!config) return null;
+
+    if (virtualPool.poolState.isMigrated) {
+      return await getMigratedPoolPrice(rpc, virtualPool.poolState.baseMint, config);
+    }
 
     const currentPoint =
       config.activationType === ActivationType.Slot
@@ -265,6 +279,36 @@ export async function getDbcQuotePrice(
   } catch {
     return null;
   }
+}
+
+/**
+ * Spot price of $STACKD in the DAMM v2 pool a graduated curve migrated into.
+ *
+ * Fixed-fee configs migrate into the Meteora-owned DAMM v2 config matching
+ * their migrationFeeOption, so the pool address is derivable without storing
+ * anything new. Verified on devnet: the pool read 1e-7 USDC per STACKD right
+ * after migration, exactly the 20 USDC / 200M STACKD it was seeded with.
+ */
+async function getMigratedPoolPrice(
+  connection: Connection,
+  baseMint: PublicKey,
+  config: { quoteMint: PublicKey; migrationFeeOption: number },
+): Promise<number | null> {
+  const dammConfig = DAMM_V2_MIGRATION_FEE_ADDRESS[config.migrationFeeOption];
+  if (!dammConfig) return null;
+
+  const dammPool = deriveDammV2PoolAddress(dammConfig, baseMint, config.quoteMint);
+  const pool = await createDammV2Program(connection).account.pool.fetchNullable(dammPool);
+  if (!pool) return null;
+
+  // sqrtPrice is token A priced in token B. DBC migrates with the base as token
+  // A, but check rather than assume, and invert if the order ever differs.
+  const aInB = getPriceFromSqrtPrice(pool.sqrtPrice, TokenDecimal.SIX, TokenDecimal.SIX).toNumber();
+  if (!Number.isFinite(aInB) || aInB <= 0) return null;
+
+  if (pool.tokenAMint.equals(baseMint)) return aInB;
+  if (pool.tokenBMint.equals(baseMint)) return 1 / aInB;
+  return null;
 }
 
 /** Percentage progress toward the 750 USDC graduation threshold, 0-100. */
