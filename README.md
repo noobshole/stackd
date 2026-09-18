@@ -91,9 +91,13 @@ non-USD currency, unreadable total, over `MAX_RECEIPT_USD`, or no brand match.
 ### Three things worth knowing
 
 **Non-USD receipts are refused, not converted.** `total_amount` is in whatever
-currency the receipt used and there is no FX source wired up. Treating a
-50,000 IDR receipt as $50,000 would pay out ~$2,000 of stock for a coffee.
-ROADMAP: add an FX lookup and convert.
+currency the receipt used and there is no FX source wired up. The
+`MAX_RECEIPT_USD` cap doesn't cover this: a 50,000 IDR receipt misread as
+$50,000 would be refused by the cap anyway, but ¥900 of coffee (roughly $6) read
+as $900 slips under it and pays $36 of stock instead of about $0.24. The guard
+trusts Claude's `currency` field, and `$` alone is also CAD, AUD, SGD, HKD, MXN
+and TWD, so the prompt makes Claude decide from the store's country, not the
+symbol. ROADMAP: add an FX lookup and convert, before the cap is applied.
 
 **Quota is spent on attempts, not successes.** The slot is taken before the
 Claude call so concurrent uploads can't all bill the API, and refunded only when
@@ -266,7 +270,8 @@ installed `@meteora-ag/dynamic-bonding-curve-sdk@1.5.12` — not recalled.
 ```bash
 npm run dbc:launch        # config + pool (dry run; add -- --execute)
 npm run dbc:claim-fees    # creator fees -> Rewards Vault
-npm run dbc:simulate      # buy until 750 USDC, confirm graduation
+npm run dbc:simulate      # devnet: buy to the threshold, migrate, verify
+npm run dbc:withdraw-leftover  # after migration: 15% leftover -> team wallet
 ```
 
 Config per Part 2.3: USDC quote, single-segment curve via `buildCurve`, 750 USDC
