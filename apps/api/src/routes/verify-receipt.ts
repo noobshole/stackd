@@ -15,6 +15,7 @@
  *   5. currency -> USD, then the USD caps
  *   6. brand match
  *   7. fingerprint: the same receipt re-photographed, from any wallet
+ *      stock: the treasury holds enough of the brand's xStock to pay it
  *   8. insert — the database's unique indexes are the final, race-safe check
  */
 
@@ -26,6 +27,7 @@ import { DuplicateReceiptError, defaultReceiptStore } from '@stackd/solana/serve
 import { ClaudeUnavailableError, extractReceipt } from '../lib/claude.js';
 import { FxUnavailableError, UnsupportedCurrencyError, toUsd } from '../lib/fx.js';
 import { matchBrand } from '../lib/match-brand.js';
+import { checkPayoutStock } from '../lib/inventory.js';
 import { checkProvenance } from '../lib/provenance.js';
 import {
   MAX_DIGITAL_RECEIPT_USD,
@@ -410,13 +412,40 @@ async function handleVerify(req: Request, res: Response): Promise<void> {
     return;
   }
 
+  // Online orders earn on at most MAX_DIGITAL_RECEIPT_USD (see eligibleAmountUsd).
+  const { eligibleUsd, capped } = eligibleAmountUsd(amountUsd, extraction.document_type);
+  const cashbackUsd = Math.round(((eligibleUsd * match.brand.pctBack) / 100) * 1e6) / 1e6;
+
+  // --- 7b. Stock: can the treasury actually pay this brand? ---------------
+  // Payouts send xStocks the treasury holds; nothing buys them on demand. An
+  // out-of-stock brand is our shortfall, not the user's, so their attempt is
+  // handed back and nothing is stored — the same receipt can be sent again
+  // once restocked. When stock cannot be read, proceed: the transfer is the
+  // real check and fails with nothing sent (see lib/inventory.ts).
+  const stock = await checkPayoutStock(match.brand, cashbackUsd);
+  if (stock.ok === false) {
+    await guards.releaseAttempt(attempt.token);
+    console.warn(
+      `[stackd-api] ${match.brand.ticker} out of stock: treasury holds ` +
+        `${stock.heldShares}, payout needs ~${stock.neededShares.toFixed(8)}`,
+    );
+    res.status(503).json(
+      rejection(
+        `Payouts in ${match.brand.ticker} are paused while we restock. Your receipt wasn't ` +
+          'used up — send it again later.',
+        { ...seen, ...fx, submissionsRemaining: await guards.walletRemaining(walletAddress) },
+      ),
+    );
+    return;
+  }
+  if (stock.ok === null) {
+    console.warn(`[stackd-api] stock check skipped for ${match.brand.ticker}: ${stock.reason}`);
+  }
+
   // --- 8. Accepted: persist before responding -----------------------------
   // The id we hand back is the idempotency key the payout keys off, so it has
   // to exist first. The insert is also the final duplicate check: two uploads
   // of one receipt racing each other cannot both land.
-  // Online orders earn on at most MAX_DIGITAL_RECEIPT_USD (see eligibleAmountUsd).
-  const { eligibleUsd, capped } = eligibleAmountUsd(amountUsd, extraction.document_type);
-  const cashbackUsd = Math.round(((eligibleUsd * match.brand.pctBack) / 100) * 1e6) / 1e6;
   const receiptId = randomUUID();
   try {
     await defaultReceiptStore.create({

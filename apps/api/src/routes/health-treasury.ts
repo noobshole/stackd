@@ -28,10 +28,14 @@ import {
   getTreasuryKeypair,
   getVaultBalance,
 } from '@stackd/solana/server';
+import { positiveNumberEnv } from '../lib/receipt-checks.js';
 import { getGuards } from '../lib/store/guards.js';
 
 /** Shorter secrets are treated as unset — the route stays disabled. */
 const MIN_SECRET_LENGTH = 16;
+
+/** A brand's stock worth less than this, in USD, is flagged as running low. */
+const LOW_STOCK_USD = positiveNumberEnv('LOW_STOCK_USD', 2);
 
 function digest(value: string): Buffer {
   return createHash('sha256').update(value).digest();
@@ -168,6 +172,17 @@ healthTreasuryRouter.get('/health/treasury', async (req: Request, res: Response)
       'STACKD_VAULT_PUBLIC_KEY differs from the treasury. dbc:claim-fees deposits there, ' +
         'but the bonus leg pays from the treasury.',
     );
+  }
+  // Payouts send only what the treasury holds, so an empty brand is a brand
+  // whose receipts /verify-receipt is refusing.
+  if (Array.isArray(xstocks)) {
+    for (const x of xstocks) {
+      if (x.balance <= 0) {
+        warnings.push(`Treasury holds no ${x.ticker}: its receipts are refused until restocked.`);
+      } else if (x.valueUsd != null && x.valueUsd < LOW_STOCK_USD) {
+        warnings.push(`${x.ticker} stock is low: $${x.valueUsd.toFixed(2)} left.`);
+      }
+    }
   }
   if (typeof sol === 'number' && sol < 0.05) {
     warnings.push(`Treasury has ${sol} SOL: payouts will start failing on fees and ATA rent.`);
