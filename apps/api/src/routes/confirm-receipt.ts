@@ -12,13 +12,16 @@
 
 import { Router, type Request, type Response } from 'express';
 import {
+  PayoutPausedError,
+  PayoutUnconfirmedError,
   RewardError,
   sendStackdBonus,
   sendXStockReward,
   solscanTx,
   defaultReceiptStore,
 } from '@stackd/solana/server';
-import { BRAND_BY_TICKER } from '@stackd/solana';
+import { BRAND_BY_TICKER, mintFor } from '@stackd/solana';
+import { getGuards } from '../lib/store/guards.js';
 
 /** Fractional, not a percentage — 0.02 is 2%. */
 const BONUS_RATE = Number(process.env.STACKD_BONUS_RATE ?? 0.02);
@@ -43,6 +46,19 @@ export interface ConfirmResponse {
 export const confirmReceiptRouter = Router();
 
 confirmReceiptRouter.post('/confirm-receipt', async (req: Request, res: Response) => {
+  try {
+    await handleConfirm(req, res);
+  } catch (error) {
+    // Express 4 does not catch async errors: without this, a storage outage
+    // leaves the request hanging.
+    console.error('[stackd-api] confirm-receipt failed:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'The payout could not be completed. Try again.' });
+    }
+  }
+});
+
+async function handleConfirm(req: Request, res: Response): Promise<void> {
   const receiptId = typeof req.body?.receiptId === 'string' ? req.body.receiptId.trim() : '';
 
   if (!receiptId) {
@@ -65,14 +81,37 @@ confirmReceiptRouter.post('/confirm-receipt', async (req: Request, res: Response
   // --- Leg 1: xStock. Always attempted; failure is a real failure. ----------
   let xstockSignature: string;
   try {
-    xstockSignature = await sendXStockReward({
-      recipientWallet: receipt.walletAddress,
-      xstockMint: brand.mint,
-      spendUsd: receipt.amountUsd,
-      pctBack: brand.pctBack,
-      receiptId,
-    });
+    xstockSignature = await sendXStockReward(
+      {
+        recipientWallet: receipt.walletAddress,
+        // The stand-in on devnet, the real mint on mainnet.
+        xstockMint: mintFor(brand),
+        spendUsd: receipt.amountUsd,
+        pctBack: brand.pctBack,
+        receiptId,
+      },
+      // The daily circuit breaker. Reserved only by the call that wins the
+      // payout claim, so a double-click cannot count one payout twice.
+      { budget: getGuards().budget },
+    );
   } catch (error) {
+    if (error instanceof PayoutPausedError) {
+      res.status(503).json({ error: error.message });
+      return;
+    }
+    if (error instanceof PayoutUnconfirmedError) {
+      // Sent, outcome unknown. Telling the user to retry would be wrong — the
+      // claim stays held so a retry cannot send twice.
+      console.error('[stackd-api] xStock payout unconfirmed:', error.signature);
+      res.status(202).json({
+        error:
+          "Your payout was sent but hasn't confirmed yet. Check your wallet in a few minutes — " +
+          "there's no need to claim again.",
+        signature: error.signature,
+        solscan: solscanTx(error.signature),
+      });
+      return;
+    }
     console.error('[stackd-api] xStock payout failed:', error);
     const message =
       error instanceof RewardError
@@ -115,4 +154,4 @@ confirmReceiptRouter.post('/confirm-receipt', async (req: Request, res: Response
   };
 
   res.status(200).json(payload);
-});
+}
