@@ -3,10 +3,11 @@ import type { Config } from 'tailwindcss';
 /**
  * Stackd design system.
  *
- * Locked to the crumbs-dapp reference: warm off-white canvas, deep navy
- * sidebar, indigo for action, green reserved exclusively for gains. Fraunces
- * appears in the logo and the landing hero and nowhere else — everything that
- * is UI chrome is Inter.
+ * Warm off-white canvas, deep navy sidebar, indigo for action, green reserved
+ * exclusively for gains. Navy (#17294F) and indigo (#4046B5) are taken from
+ * the logo so the mark and the interface are one palette; every other shade
+ * is derived from those two. Fraunces appears in the logo and the landing
+ * hero and nowhere else — everything that is UI chrome is Inter.
  */
 const config: Config = {
   content: ['./src/**/*.{ts,tsx}'],
@@ -19,18 +20,18 @@ const config: Config = {
         sunken: '#F1EEE7',
 
         sidebar: {
-          DEFAULT: '#1A1A2E',
-          hover: '#24243E',
-          active: '#2E2E4D',
-          text: '#A5A3B8',
-          heading: '#6C6A85',
+          DEFAULT: '#17294F', // logo navy
+          hover: '#1F3460',
+          active: '#28406F',
+          text: '#A7B2C9', // 6.7:1 on the sidebar
+          heading: '#7282A1',
         },
 
         primary: {
-          DEFAULT: '#4F46E5',
-          hover: '#4338CA',
-          soft: '#EEEDFB',
-          border: '#C7C3F4',
+          DEFAULT: '#4046B5', // logo indigo; white text on it is 7.6:1
+          hover: '#343A9C',
+          soft: '#ECEDF8',
+          border: '#C4C7EC',
         },
 
         // Green is for gains only. Never use it for "success", buttons, or
@@ -44,10 +45,12 @@ const config: Config = {
           soft: '#FBEAEA',
         },
 
+        // Blue-greys matched in lightness to the previous warm greys, so
+        // contrast is unchanged: muted is 5.0:1 on the canvas (WCAG AA).
         ink: {
-          DEFAULT: '#1A1A2E',
-          muted: '#6B6878',
-          subtle: '#9A97A6',
+          DEFAULT: '#17294F',
+          muted: '#5E6A80',
+          subtle: '#939CAE',
         },
 
         line: {
@@ -76,9 +79,9 @@ const config: Config = {
       },
 
       boxShadow: {
-        card: '0 1px 2px rgba(26, 26, 46, 0.04), 0 1px 12px rgba(26, 26, 46, 0.03)',
-        lift: '0 4px 16px rgba(26, 26, 46, 0.08)',
-        modal: '0 24px 64px rgba(26, 26, 46, 0.22)',
+        card: '0 1px 2px rgba(23, 41, 79, 0.04), 0 1px 12px rgba(23, 41, 79, 0.03)',
+        lift: '0 4px 16px rgba(23, 41, 79, 0.08)',
+        modal: '0 24px 64px rgba(23, 41, 79, 0.22)',
       },
 
       keyframes: {

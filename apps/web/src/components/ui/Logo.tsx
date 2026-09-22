@@ -1,8 +1,10 @@
 import Link from 'next/link';
+import { MARK_BAR, MARK_RIBBONS, MARK_VIEWBOX } from '@/components/ui/logo-paths';
 
 /**
- * The one place Fraunces is allowed outside the landing hero.
- * 300 italic, always.
+ * The Stackd lockup: the mark plus the wordmark, as in the designer's master
+ * files. The wordmark is live Fraunces 600 italic rather than an image, so it
+ * stays crisp at every size — the logo was set in the same typeface and weight.
  */
 export function Logo({
   href = '/',
@@ -16,25 +18,34 @@ export function Logo({
   const text = tone === 'light' ? 'text-white' : 'text-ink';
 
   return (
-    <Link href={href} className={`group inline-flex items-center gap-2.5 ${className}`}>
+    <Link href={href} className={`group inline-flex items-center gap-2 ${className}`}>
       <LogoMark tone={tone} />
-      <span className={`font-display text-[1.35rem] font-light italic leading-none ${text}`}>
+      <span className={`font-display text-[1.4rem] font-semibold italic leading-none ${text}`}>
         Stackd
       </span>
     </Link>
   );
 }
 
-export function LogoMark({ tone = 'dark' }: { tone?: 'dark' | 'light' }) {
-  // On navy the base bar has to be light to stay visible; on the canvas it is navy.
-  const base = tone === 'light' ? '#FFFFFF' : '#1A1A2E';
-  const mid = tone === 'light' ? '#6C6A85' : '#A5A3B8';
+/**
+ * The mark alone. On navy the ribbons turn white to stay visible; the indigo
+ * bar is the same on both.
+ */
+export function LogoMark({
+  tone = 'dark',
+  height = 26,
+}: {
+  tone?: 'dark' | 'light';
+  height?: number;
+}) {
+  const ribbons = tone === 'light' ? '#FFFFFF' : '#17294F';
+  // The mark is taller than it is wide (1056 x 1420).
+  const width = Math.round((height * 1056) / 1420);
 
   return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <rect x="4" y="15" width="16" height="4" rx="2" fill={base} />
-      <rect x="4" y="9.5" width="16" height="4" rx="2" fill={mid} />
-      <rect x="4" y="4" width="16" height="4" rx="2" fill="#4F46E5" />
+    <svg width={width} height={height} viewBox={MARK_VIEWBOX} aria-hidden>
+      <path fill="#4046B5" d={MARK_BAR} />
+      <path fill={ribbons} d={MARK_RIBBONS} />
     </svg>
   );
 }

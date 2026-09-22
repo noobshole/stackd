@@ -1,22 +1,56 @@
 'use client';
 
+import { Suspense, useMemo } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { PublicKey } from '@solana/web3.js';
 import { useWallet } from '@solana/wallet-adapter-react';
+import { getCluster } from '@stackd/solana';
 import { usePortfolio } from '@/hooks/useXStockData';
 import { ConnectPrompt } from '@/components/ui/ConnectPrompt';
 import { Note, SectionHeader } from '@/components/ui/primitives';
 import { StatsRow } from '@/components/portfolio/StatsRow';
 import { HoldingsTable } from '@/components/portfolio/HoldingsTable';
+import { shortenAddress } from '@/lib/format';
 
-export default function PortfolioPage() {
+const NETWORK = getCluster() === 'devnet' ? 'Solana devnet' : 'Solana mainnet';
+
+/** `?address=` → a PublicKey, or an error string for a malformed one. */
+function parseAddress(raw: string | null): PublicKey | string | null {
+  if (!raw) return null;
+  try {
+    return new PublicKey(raw.trim());
+  } catch {
+    return `"${raw}" is not a valid Solana address.`;
+  }
+}
+
+function Portfolio() {
   const { publicKey } = useWallet();
-  const portfolio = usePortfolio();
+  const params = useSearchParams();
+  const rawAddress = params.get('address');
 
-  if (!publicKey) {
+  // Memoised on the string so the query key and hook deps stay stable.
+  const parsed = useMemo(() => parseAddress(rawAddress), [rawAddress]);
+  const viewing = parsed instanceof PublicKey ? parsed : null;
+  const owner = viewing ?? publicKey;
+
+  const portfolio = usePortfolio(owner);
+
+  if (typeof parsed === 'string') {
+    return (
+      <>
+        <SectionHeader title="Portfolio" description={`Read live from ${NETWORK}.`} />
+        <Note>{parsed}</Note>
+      </>
+    );
+  }
+
+  if (!owner) {
     return (
       <>
         <SectionHeader
           title="Portfolio"
-          description="Your xStock holdings, read live from Solana mainnet."
+          description={`Your xStock holdings, read live from ${NETWORK}.`}
         />
         <ConnectPrompt />
       </>
@@ -29,7 +63,11 @@ export default function PortfolioPage() {
     <>
       <SectionHeader
         title="Portfolio"
-        description="Your xStock holdings, read live from Solana mainnet."
+        description={
+          viewing
+            ? `Holdings of ${shortenAddress(viewing.toBase58())}, read-only, live from ${NETWORK}.`
+            : `Your xStock holdings, read live from ${NETWORK}.`
+        }
         actions={
           <button
             type="button"
@@ -88,5 +126,15 @@ export default function PortfolioPage() {
         </p>
       )}
     </>
+  );
+}
+
+// useSearchParams needs a Suspense boundary, or Next bails the whole page out
+// of static rendering at build time.
+export default function PortfolioPage() {
+  return (
+    <Suspense fallback={null}>
+      <Portfolio />
+    </Suspense>
   );
 }

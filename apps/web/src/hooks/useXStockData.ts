@@ -3,6 +3,7 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
+import { PublicKey } from '@solana/web3.js';
 import {
   ALL_MINTS,
   BRANDS,
@@ -13,17 +14,51 @@ import {
   type XStockBalance,
   type XStockPrice,
 } from '@stackd/solana';
+import { fetchStackdBalance, fetchStackdState } from '@/lib/stackd';
 
-/** Live Token-2022 balances for the connected wallet. */
-export function useXStockBalances() {
+/**
+ * Live Token-2022 balances for `owner`, or the connected wallet when no owner
+ * is given. Reading someone else's holdings needs no signature — it is all
+ * public chain data.
+ */
+export function useXStockBalances(owner?: PublicKey | null) {
   const { connection } = useConnection();
   const { publicKey } = useWallet();
-  const owner = publicKey?.toBase58() ?? null;
+  const target = owner ?? publicKey;
+  const key = target?.toBase58() ?? null;
 
   return useQuery({
-    queryKey: ['xstock-balances', owner],
-    queryFn: () => fetchXStockBalances(connection, publicKey!),
-    enabled: Boolean(publicKey),
+    queryKey: ['xstock-balances', key],
+    queryFn: () => fetchXStockBalances(connection, target!),
+    enabled: Boolean(target),
+    staleTime: 30_000,
+  });
+}
+
+/** $STACKD price and bonding-curve progress. Does not need a wallet. */
+export function useStackdState() {
+  return useQuery({
+    queryKey: ['stackd-state'],
+    queryFn: ({ signal }) => fetchStackdState(signal),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    // The API may not be deployed yet; the portfolio simply omits $STACKD.
+    retry: false,
+  });
+}
+
+/** STACKD held by `owner` (or the connected wallet). */
+export function useStackdBalance(owner?: PublicKey | null) {
+  const { connection } = useConnection();
+  const { publicKey } = useWallet();
+  const state = useStackdState();
+  const target = owner ?? publicKey;
+  const mint = state.data?.mint ?? null;
+
+  return useQuery({
+    queryKey: ['stackd-balance', target?.toBase58() ?? null, mint],
+    queryFn: () => fetchStackdBalance(connection, target!, new PublicKey(mint!)),
+    enabled: Boolean(target && mint),
     staleTime: 30_000,
   });
 }
@@ -70,19 +105,22 @@ export interface PortfolioSummary {
 }
 
 /** Balances joined to prices, plus the numbers the stats row needs. */
-export function usePortfolio(): PortfolioSummary {
+export function usePortfolio(owner?: PublicKey | null): PortfolioSummary {
   const { publicKey } = useWallet();
-  const balances = useXStockBalances();
+  const target = owner ?? publicKey;
+  const balances = useXStockBalances(target);
   const prices = useXStockPrices();
 
   return useMemo(() => {
-    const byMint = new Map<string, XStockBalance>(
-      (balances.data ?? []).map((b) => [b.brand.mint, b]),
+    // Joined by ticker, not mint: on devnet the balance lives on a stand-in
+    // mint while the price is keyed by the real one.
+    const byTicker = new Map<string, XStockBalance>(
+      (balances.data ?? []).map((b) => [b.brand.ticker, b]),
     );
     const priceMap: Record<string, XStockPrice> = prices.data ?? {};
 
     const rows: PortfolioRow[] = BRANDS.map((brand) => {
-      const balance = byMint.get(brand.mint);
+      const balance = byTicker.get(brand.ticker);
       const price = priceMap[brand.mint];
       const quantity = balance ? balance.uiAmount : null;
       const usd = price?.usd ?? null;
@@ -134,11 +172,11 @@ export function usePortfolio(): PortfolioSummary {
       isLoading: balances.isLoading || prices.isLoading,
       isFetching: balances.isFetching || prices.isFetching,
       error: (balances.error ?? prices.error) as Error | null,
-      hasWallet: Boolean(publicKey),
+      hasWallet: Boolean(target),
       refetch: () => {
         void balances.refetch();
         void prices.refetch();
       },
     };
-  }, [balances, prices, publicKey]);
+  }, [balances, prices, target]);
 }

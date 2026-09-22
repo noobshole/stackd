@@ -464,6 +464,9 @@ function Result({
           }
           muted
         />
+        {result.eligibleUsd != null && (
+          <Row label="Earns cashback" value={formatUsd(result.eligibleUsd)} muted />
+        )}
         <Row label={`Cashback (${result.pctBack}%)`} value={formatUsd(result.cashbackUsd)} muted />
         <div className="border-t border-line pt-2.5">
           <div className="flex items-baseline justify-between gap-3">
@@ -479,6 +482,12 @@ function Result({
         <p className="num mt-2 text-2xs leading-relaxed text-ink-subtle">
           Converted at 1 USD = {result.fxRate.toLocaleString('en-US')} {result.currency}
           {result.fxRateDate && `, ECB reference rate for ${result.fxRateDate}`}.
+        </p>
+      )}
+
+      {result.digitalCapUsd != null && (
+        <p className="num mt-2 text-2xs leading-relaxed text-ink-subtle">
+          Online orders earn cashback on up to {formatUsd(result.digitalCapUsd)} of the total.
         </p>
       )}
 
@@ -556,7 +565,7 @@ function PayoutRow({ label, href }: { label: string; href: string }) {
         <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden>
           <path
             d="M2.5 6.5l2.5 2.5 4.5-5"
-            stroke="#4F46E5"
+            stroke="#4046B5"
             strokeWidth="1.8"
             strokeLinecap="round"
             strokeLinejoin="round"

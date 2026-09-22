@@ -43,6 +43,18 @@ export function formatMoney(
   }
 }
 
+const usdSmall = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  maximumSignificantDigits: 3,
+});
+
+/** Prices far below a cent ($STACKD): "$0.0000001" instead of "$0.00". */
+export function formatSmallUsd(value: number | null | undefined, fallback = '—'): string {
+  if (value == null || !Number.isFinite(value)) return fallback;
+  return value >= 0.01 ? usd.format(value) : usdSmall.format(value);
+}
+
 export function formatUsdCompact(value: number | null | undefined, fallback = '—'): string {
   if (value == null || !Number.isFinite(value)) return fallback;
   return usdCompact.format(value);

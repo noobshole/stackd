@@ -14,6 +14,7 @@
  */
 
 import { NextResponse } from 'next/server';
+import { getCluster } from '@stackd/solana';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -43,12 +44,13 @@ function rpcError(id: JsonRpcCall['id'], code: number, message: string) {
 }
 
 export async function POST(request: Request) {
-  const upstream = process.env.HELIUS_RPC_URL;
+  const envVar = getCluster() === 'devnet' ? 'HELIUS_DEVNET_RPC_URL' : 'HELIUS_RPC_URL';
+  const upstream = process.env[envVar];
 
   // Fail loudly rather than quietly falling back to a public endpoint.
   if (!upstream) {
     return NextResponse.json(
-      rpcError(null, -32603, 'HELIUS_RPC_URL is not configured on the server.'),
+      rpcError(null, -32603, `${envVar} is not configured on the server.`),
       { status: 503 },
     );
   }

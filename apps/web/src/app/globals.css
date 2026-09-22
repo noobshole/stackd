@@ -87,18 +87,18 @@
   background: #ffffff !important;
   border: 1px solid #e6e2d9 !important;
   border-radius: 16px !important;
-  box-shadow: 0 24px 64px rgba(26, 26, 46, 0.22) !important;
+  box-shadow: 0 24px 64px rgba(23, 41, 79, 0.22) !important;
   font-family: var(--font-inter), system-ui, sans-serif !important;
   padding-bottom: 8px !important;
 }
 
 .wallet-adapter-modal-overlay {
-  background: rgba(26, 26, 46, 0.42) !important;
+  background: rgba(23, 41, 79, 0.42) !important;
   backdrop-filter: blur(3px);
 }
 
 .wallet-adapter-modal-title {
-  color: #1a1a2e !important;
+  color: #17294f !important;
   font-size: 1.125rem !important;
   font-weight: 500 !important;
   /* 56px on the right keeps the heading clear of the close button, which the
@@ -117,7 +117,7 @@
 }
 
 .wallet-adapter-modal-button-close svg {
-  fill: #6b6878 !important;
+  fill: #5e6a80 !important;
 }
 
 .wallet-adapter-modal-list {
@@ -131,7 +131,7 @@
 .wallet-adapter-modal-list .wallet-adapter-button {
   background: transparent !important;
   border-radius: 10px !important;
-  color: #1a1a2e !important;
+  color: #17294f !important;
   font-family: inherit !important;
   font-size: 0.9375rem !important;
   font-weight: 450 !important;
@@ -149,20 +149,20 @@
 }
 
 .wallet-adapter-modal-list .wallet-adapter-button span {
-  color: #9a97a6 !important;
+  color: #939cae !important;
   font-size: 0.8125rem !important;
   font-weight: 400 !important;
 }
 
 .wallet-adapter-modal-list-more {
-  color: #4f46e5 !important;
+  color: #4046b5 !important;
   font-family: inherit !important;
   font-size: 0.8125rem !important;
   margin: 4px 12px 12px !important;
 }
 
 .wallet-adapter-modal-list-more svg {
-  stroke: #4f46e5 !important;
+  stroke: #4046b5 !important;
 }
 
 .wallet-adapter-modal-middle {
@@ -170,7 +170,7 @@
 }
 
 .wallet-adapter-modal-middle-button {
-  background: #4f46e5 !important;
+  background: #4046b5 !important;
   border-radius: 10px !important;
   font-family: inherit !important;
   font-weight: 500 !important;

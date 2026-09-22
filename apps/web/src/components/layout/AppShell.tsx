@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Logo } from '@/components/ui/Logo';
+import { FooterLinks, ISSUER_DISCLAIMER } from '@/components/layout/SiteFooter';
 import { WalletButton } from '@/components/wallet/WalletButton';
 import {
   BrandsIcon,
@@ -89,12 +90,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="mx-auto w-full max-w-5xl animate-fade-up">{children}</div>
         </main>
 
-        <footer className="border-t border-line px-4 py-5 text-xs text-ink-subtle sm:px-6 lg:px-8">
-          <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-x-4 gap-y-1">
-            <span>
-              Tokenized shares are issued by Backed Finance and Backpack Securities. Stackd is
-              not a broker and does not give investment advice.
-            </span>
+        <footer className="border-t border-line px-4 py-5 sm:px-6 lg:px-8">
+          <div className="mx-auto flex w-full max-w-5xl flex-col gap-3">
+            <FooterLinks />
+            <p className="text-xs leading-relaxed text-ink-subtle">{ISSUER_DISCLAIMER}</p>
           </div>
         </footer>
       </div>

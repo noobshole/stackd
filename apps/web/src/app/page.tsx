@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { BRANDS, ISSUERS, MAX_PCT_BACK } from '@stackd/solana';
 import { Logo } from '@/components/ui/Logo';
+import { FooterLinks, ISSUER_DISCLAIMER } from '@/components/layout/SiteFooter';
 import { BrandMark } from '@/components/ui/primitives';
 
 const STEPS = [
@@ -175,12 +176,12 @@ export default function LandingPage() {
       </main>
 
       <footer className="border-t border-line">
-        <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-5 py-8 sm:flex-row sm:items-center sm:justify-between sm:px-8">
-          <Logo />
-          <p className="max-w-lg text-xs leading-relaxed text-ink-subtle">
-            Tokenized shares are issued by Backed Finance and Backpack Securities. Stackd is not a broker-dealer and does not
-            provide investment advice. Tokenized equities carry risk, including loss of principal.
-          </p>
+        <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-5 py-8 sm:px-8">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <Logo />
+            <FooterLinks />
+          </div>
+          <p className="max-w-2xl text-xs leading-relaxed text-ink-subtle">{ISSUER_DISCLAIMER}</p>
         </div>
       </footer>
     </div>

@@ -11,10 +11,10 @@ const inter = Inter({
   display: 'swap',
 });
 
-// Logo and landing hero only.
+// Logo (600) and landing hero (300) only.
 const fraunces = Fraunces({
   subsets: ['latin'],
-  weight: ['300'],
+  weight: ['300', '600'],
   style: ['italic'],
   variable: '--font-fraunces',
   display: 'swap',
@@ -35,6 +35,7 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [{ url: '/icon.svg', type: 'image/svg+xml' }],
+    apple: [{ url: '/apple-touch-icon.png', sizes: '180x180' }],
   },
 };
 

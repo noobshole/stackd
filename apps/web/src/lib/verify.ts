@@ -11,6 +11,10 @@ export interface VerifyResponse {
   confidence: number | null;
   pctBack?: number;
   cashbackUsd?: number;
+  /** Only when an online order was capped: the part of amountUsd that earns cashback. */
+  eligibleUsd?: number;
+  /** The online-order cap that applied, in USD. */
+  digitalCapUsd?: number;
   merchantName?: string;
   date?: string;
   currency?: string;
@@ -23,7 +27,7 @@ export interface VerifyResponse {
   submissionsRemaining?: number;
 }
 
-function apiBase(): string {
+export function apiBase(): string {
   return (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000').replace(/\/$/, '');
 }
 

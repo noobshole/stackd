@@ -2,19 +2,29 @@
 
 import Link from 'next/link';
 import { BrandMark, ChangePill, EmptyState } from '@/components/ui/primitives';
-import { formatTokenAmount, formatUsd } from '@/lib/format';
+import { formatSmallUsd, formatTokenAmount, formatUsd } from '@/lib/format';
 import type { PortfolioRow } from '@/hooks/useXStockData';
+
+/** The $STACKD bonus-token row. Not a Brand, so it rides alongside the table. */
+export interface StackdHolding {
+  quantity: number;
+  priceUsd: number | null;
+}
 
 export function HoldingsTable({
   rows,
   isLoading,
+  stackd,
 }: {
   rows: PortfolioRow[];
   isLoading: boolean;
+  stackd?: StackdHolding | null;
 }) {
   if (isLoading) return <LoadingTable />;
 
-  if (rows.length === 0) {
+  const showStackd = stackd != null && stackd.quantity > 0;
+
+  if (rows.length === 0 && !showStackd) {
     return (
       <div className="card">
         <EmptyState
@@ -91,10 +101,44 @@ export function HoldingsTable({
                 </td>
               </tr>
             ))}
+            {showStackd && <StackdRow holding={stackd} />}
           </tbody>
         </table>
       </div>
     </div>
+  );
+}
+
+/**
+ * $STACKD sits in the same table as the xStocks but is visibly a different
+ * kind of thing: a bonus token on a bonding curve, not a share. Its price is
+ * tiny, so it is shown in scientific-friendly form rather than rounding to $0.00.
+ */
+function StackdRow({ holding }: { holding: StackdHolding }) {
+  const value = holding.priceUsd != null ? holding.quantity * holding.priceUsd : null;
+  return (
+    <tr className="border-t border-dashed border-line-strong bg-primary-soft/40">
+      <td className="px-5 py-3.5">
+        <div className="flex items-center gap-3">
+          <span
+            aria-hidden
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-xs font-medium text-white"
+          >
+            $S
+          </span>
+          <div className="min-w-0">
+            <p className="font-medium text-ink">STACKD</p>
+            <p className="truncate text-xs text-ink-muted">Bonus token · Meteora curve</p>
+          </div>
+        </div>
+      </td>
+      <td className="num px-5 py-3.5 text-right text-ink">{formatTokenAmount(holding.quantity)}</td>
+      <td className="num px-5 py-3.5 text-right text-ink-muted">{formatSmallUsd(holding.priceUsd)}</td>
+      <td className="px-5 py-3.5 text-right">
+        <ChangePill pct={null} />
+      </td>
+      <td className="num px-5 py-3.5 text-right font-medium text-ink">{formatUsd(value)}</td>
+    </tr>
   );
 }
 
