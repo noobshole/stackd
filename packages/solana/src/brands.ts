@@ -22,6 +22,9 @@
  * every amount through toRawAmount() in scaled-amount.ts.
  */
 
+import { getCluster, type Cluster } from './cluster';
+import { DEVNET_MINTS } from './devnet-mints';
+
 export type Issuer = 'Backed Finance' | 'Backpack Securities';
 
 export interface Brand {
@@ -178,7 +181,29 @@ export const BRAND_BY_TICKER: Record<string, Brand> = Object.fromEntries(
   BRANDS.map((b) => [b.ticker, b]),
 );
 
+/** Mainnet mints. Also the price keys: devnet stand-ins are priced as the real token. */
 export const ALL_MINTS: string[] = BRANDS.map((b) => b.mint);
+
+/**
+ * The mint that holds real balances on `cluster`. On mainnet that is the brand's
+ * own mint; on devnet it is the stand-in from devnet-mints.ts.
+ */
+export function mintFor(brand: Brand, cluster: Cluster = getCluster()): string {
+  if (cluster === 'mainnet') return brand.mint;
+  const mint = DEVNET_MINTS[brand.ticker];
+  if (!mint) {
+    throw new Error(`No devnet stand-in mint for ${brand.ticker}. Run: npm run devnet:setup`);
+  }
+  return mint;
+}
+
+/** Brand for a mint on either cluster. */
+export function brandForMint(mint: string): Brand | undefined {
+  const mainnet = BRAND_BY_MINT[mint];
+  if (mainnet) return mainnet;
+  const ticker = Object.keys(DEVNET_MINTS).find((t) => DEVNET_MINTS[t] === mint);
+  return ticker ? BRAND_BY_TICKER[ticker] : undefined;
+}
 
 /** Highest cashback rate in the set, for landing-page copy. */
 export const MAX_PCT_BACK: number = Math.max(...BRANDS.map((b) => b.pctBack));

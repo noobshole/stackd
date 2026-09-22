@@ -6,6 +6,7 @@
  * browser bundle by importing `@stackd/solana`. Import this from apps/api only.
  */
 
+export * from './cluster';
 export * from './treasury';
 export * from './receipt-store';
 export * from './dbc';

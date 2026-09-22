@@ -8,7 +8,8 @@
 
 import { Connection, PublicKey } from '@solana/web3.js';
 import { TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
-import { BRANDS, BRAND_BY_MINT, type Brand } from './brands';
+import { BRANDS, mintFor, type Brand } from './brands';
+import { getCluster, type Cluster } from './cluster';
 import { fetchScaledUiAmountStates, toUiAmount, NO_SCALING } from './scaled-amount';
 
 export interface XStockBalance {
@@ -33,12 +34,16 @@ export interface XStockBalance {
 export async function fetchXStockBalances(
   connection: Connection,
   owner: PublicKey,
+  cluster: Cluster = getCluster(),
 ): Promise<XStockBalance[]> {
+  const mints = BRANDS.map((b) => mintFor(b, cluster));
+  const known = new Set(mints);
+
   const [parsed, scaling] = await Promise.all([
     connection.getParsedTokenAccountsByOwner(owner, { programId: TOKEN_2022_PROGRAM_ID }),
     fetchScaledUiAmountStates(
       connection,
-      BRANDS.map((b) => new PublicKey(b.mint)),
+      mints.map((m) => new PublicKey(m)),
     ),
   ]);
 
@@ -49,7 +54,7 @@ export async function fetchXStockBalances(
   for (const { pubkey, account } of parsed.value) {
     const info = account.data.parsed?.info;
     const mint: string | undefined = info?.mint;
-    if (!mint || !BRAND_BY_MINT[mint]) continue;
+    if (!mint || !known.has(mint)) continue;
 
     // `amount` is the unscaled u64. Do not use `uiAmount` here — whether the
     // RPC applies the scaled-UI multiplier to it varies by node version.
@@ -61,9 +66,9 @@ export async function fetchXStockBalances(
     });
   }
 
-  return BRANDS.map((brand) => {
-    const entry = raw.get(brand.mint);
-    const { multiplier } = scaling.get(brand.mint) ?? NO_SCALING;
+  return BRANDS.map((brand, i) => {
+    const entry = raw.get(mints[i]);
+    const { multiplier } = scaling.get(mints[i]) ?? NO_SCALING;
     const amount = entry?.amount ?? BigInt(0);
 
     return {

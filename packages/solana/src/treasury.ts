@@ -8,6 +8,7 @@
 
 import { Connection, Keypair } from '@solana/web3.js';
 import bs58 from 'bs58';
+import { getCluster } from './cluster';
 
 function assertServer(what: string): void {
   // `'window' in globalThis` rather than `typeof window` so this compiles under
@@ -21,14 +22,15 @@ function assertServer(what: string): void {
 
 let connection: Connection | null = null;
 
-/** Helius mainnet connection. Never a public endpoint. */
+/** Helius connection for SOLANA_CLUSTER. Never a public endpoint. */
 export function getConnection(): Connection {
   assertServer('getConnection');
   if (connection) return connection;
 
-  const url = process.env.HELIUS_RPC_URL;
+  const envVar = getCluster() === 'devnet' ? 'HELIUS_DEVNET_RPC_URL' : 'HELIUS_RPC_URL';
+  const url = process.env[envVar];
   if (!url) {
-    throw new Error('HELIUS_RPC_URL is not set. Refusing to fall back to a public endpoint.');
+    throw new Error(`${envVar} is not set. Refusing to fall back to a public endpoint.`);
   }
 
   connection = new Connection(url, { commitment: 'confirmed' });

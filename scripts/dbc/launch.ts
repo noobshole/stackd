@@ -36,21 +36,75 @@ import {
   banner,
   fail,
   getConnection,
+  optionalAddress,
   requireKeypair,
   requireConfirm,
   resolveCluster,
   assertKeyUsableOn,
 } from './_shared.js';
 
+const TOKEN_NAME = 'Stackd';
+const TOKEN_SYMBOL = 'STACKD';
+const METADATA_URI =
+  process.env.STACKD_METADATA_URI ?? 'https://stackd-web-eosin.vercel.app/token.json';
+
+/**
+ * The metadata URI is written into the token at genesis, and with
+ * TokenAuthorityOption.Immutable nobody holds update authority — it can never
+ * be changed. A URI that 404s means a permanently nameless, logo-less token in
+ * every wallet and on Meteora. So on mainnet, prove it resolves first: the
+ * JSON parses, its name and symbol match what we mint, and its image loads.
+ */
+async function checkMetadata(): Promise<string[]> {
+  const problems: string[] = [];
+  let json: { name?: unknown; symbol?: unknown; image?: unknown };
+  try {
+    const res = await fetch(METADATA_URI, { signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) return [`${METADATA_URI} returned HTTP ${res.status}.`];
+    json = (await res.json()) as typeof json;
+  } catch (error) {
+    return [`${METADATA_URI} could not be fetched as JSON: ${(error as Error).message}`];
+  }
+
+  if (json.name !== TOKEN_NAME) problems.push(`metadata name is "${json.name}", expected "${TOKEN_NAME}".`);
+  if (json.symbol !== TOKEN_SYMBOL) problems.push(`metadata symbol is "${json.symbol}", expected "${TOKEN_SYMBOL}".`);
+
+  if (typeof json.image !== 'string' || !json.image) {
+    problems.push('metadata has no image URL.');
+  } else {
+    try {
+      const img = await fetch(json.image, { signal: AbortSignal.timeout(10_000) });
+      const type = img.headers.get('content-type') ?? '';
+      if (!img.ok) problems.push(`image ${json.image} returned HTTP ${img.status}.`);
+      else if (!type.startsWith('image/')) problems.push(`image ${json.image} is "${type}", not an image.`);
+    } catch (error) {
+      problems.push(`image ${json.image} could not be fetched: ${(error as Error).message}`);
+    }
+  }
+  return problems;
+}
+
 async function main(): Promise<void> {
   const cluster = resolveCluster();
   const connection = getConnection(cluster);
 
-  // The payer is both partner (config owner, fee claimer) and pool creator.
-  const payer = requireKeypair('DBC_PAYER_PRIVATE_KEY', 'config owner, pool creator and fee claimer');
+  // The payer creates the config and the pool, and pays for both.
+  const payer = requireKeypair('DBC_PAYER_PRIVATE_KEY', 'config owner and pool creator');
   assertKeyUsableOn(payer, cluster);
-  const team = requireKeypair('STACKD_TEAM_PRIVATE_KEY', 'team wallet that receives the 15% leftover after migration');
+
+  // Both receivers are fixed in the config forever. Neither ever signs —
+  // withdraw_leftover is permissionless and partner fees are claimed by the
+  // claimer — so a plain address is enough, which is what lets them be a
+  // Squads multisig vault (a PDA with no private key).
+  const team =
+    optionalAddress('STACKD_TEAM_ADDRESS') ??
+    requireKeypair(
+      'STACKD_TEAM_PRIVATE_KEY',
+      'team wallet that receives the 15% leftover after migration (or set STACKD_TEAM_ADDRESS)',
+    ).publicKey;
   assertKeyUsableOn(team, cluster);
+  const feeClaimer = optionalAddress('DBC_FEE_CLAIMER_ADDRESS') ?? payer.publicKey;
+  assertKeyUsableOn(feeClaimer, cluster);
 
   const config = Keypair.generate();
   const baseMint = Keypair.generate();
@@ -70,13 +124,29 @@ async function main(): Promise<void> {
     'base mint': baseMint.publicKey.toBase58(),
     'quote (USDC)': quoteMint,
     'pool': pool.toBase58(),
-    'team/leftover': team.publicKey.toBase58(),
+    'team/leftover': team.toBase58(),
+    'fee claimer': feeClaimer.toBase58(),
+    'metadata': METADATA_URI,
     'total supply': STACKD_TOTAL_SUPPLY.toLocaleString('en-US'),
     'leftover': `${TEAM_LEFTOVER_PERCENTAGE}%`,
     'on migration': `${PERCENTAGE_SUPPLY_ON_MIGRATION}%`,
     'graduates at': `${threshold} USDC${threshold !== 750 ? '  (devnet override)' : ''}`,
     'mint authority': 'Immutable (no future minting, ever)',
   });
+
+  const metadataProblems = await checkMetadata();
+  if (metadataProblems.length > 0) {
+    const list = metadataProblems.map((p) => `    - ${p}`).join('\n');
+    if (cluster === 'mainnet') {
+      throw new Error(
+        `Refusing mainnet genesis: token metadata is not ready.\n${list}\n\n` +
+          '  The URI is permanent once minted. Deploy token.json and its image first.',
+      );
+    }
+    console.warn(`  WARNING (devnet, continuing): token metadata is not ready.\n${list}\n`);
+  } else {
+    console.log('  metadata       : ok (JSON, name, symbol and image all resolve)\n');
+  }
 
   await assertFunded(connection, payer.publicKey);
   if (!requireConfirm('--execute')) return;
@@ -88,8 +158,8 @@ async function main(): Promise<void> {
   console.log('  creating config…');
   const configTx = await client.partner.createConfig({
     config: config.publicKey,
-    feeClaimer: payer.publicKey,
-    leftoverReceiver: team.publicKey,
+    feeClaimer,
+    leftoverReceiver: team,
     payer: payer.publicKey,
     quoteMint: quoteMint as unknown as never,
     ...curveConfig,
@@ -106,9 +176,9 @@ async function main(): Promise<void> {
   const poolTx = await client.creator.createPool({
     baseMint: baseMint.publicKey,
     config: config.publicKey,
-    name: 'Stackd',
-    symbol: 'STACKD',
-    uri: process.env.STACKD_METADATA_URI ?? 'https://stackd-web-eosin.vercel.app/token.json',
+    name: TOKEN_NAME,
+    symbol: TOKEN_SYMBOL,
+    uri: METADATA_URI,
     payer: payer.publicKey,
     poolCreator: payer.publicKey,
   });

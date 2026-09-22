@@ -50,6 +50,7 @@ import {
   deriveDbcPoolAddress,
   getPriceFromSqrtPrice,
 } from '@meteora-ag/dynamic-bonding-curve-sdk';
+import { getConnection } from './treasury';
 
 /** Same program id on mainnet and devnet, per Meteora docs. */
 export const DBC_PROGRAM_ID = 'dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN';
@@ -235,9 +236,10 @@ export async function getDbcQuotePrice(
   const pool = poolAddress ?? process.env.DBC_POOL_ADDRESS?.trim();
   if (!pool) return null;
 
-  const rpc = connection ?? new Connection(process.env.HELIUS_RPC_URL ?? '', 'confirmed');
-
   try {
+    // Default to the app's cluster connection. This used to build its own from
+    // HELIUS_RPC_URL, which quietly read mainnet during devnet runs.
+    const rpc = connection ?? getConnection();
     const client = getDbcClient(rpc);
     const poolKey = new PublicKey(pool);
 

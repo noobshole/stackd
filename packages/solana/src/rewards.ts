@@ -32,7 +32,7 @@ import {
   getAssociatedTokenAddressSync,
 } from '@solana/spl-token';
 
-import { BRAND_BY_MINT } from './brands';
+import { brandForMint } from './brands';
 import { fetchXStockPrices } from './prices';
 import { fetchScaledUiAmountState, toRawAmount } from './scaled-amount';
 import { getConnection, getTreasuryKeypair } from './treasury';
@@ -48,6 +48,32 @@ import { defaultReceiptStore, type ReceiptStore } from './receipt-store';
 const COMPUTE_UNIT_PRICE_MICROLAMPORTS = 5_000;
 
 export class RewardError extends Error {}
+
+/** Today's payout budget is spent. Nothing was sent; the receipt stays claimable. */
+export class PayoutPausedError extends RewardError {}
+
+/**
+ * The transfer was sent but its outcome could not be established before we
+ * gave up waiting. It may still land, so the claim is deliberately NOT released
+ * — releasing it would let a retry send a second transfer. Reconcile manually
+ * from the signature.
+ */
+export class PayoutUnconfirmedError extends RewardError {
+  constructor(readonly signature: string) {
+    super(`Transfer ${signature} was sent but not confirmed. Not retrying automatically.`);
+  }
+}
+
+/**
+ * Daily payout circuit breaker. Reserve before sending, release if the send
+ * fails. Bounds the damage from anything that slips past verification — a
+ * forged receipt, or a maths bug — to one day's cap.
+ */
+export interface PayoutBudget {
+  /** Reserve `usd` against today's cap. False when it would exceed the cap. */
+  reserve(usd: number): Promise<boolean>;
+  release(usd: number): Promise<void>;
+}
 
 // ---------------------------------------------------------------------------
 // Pure amount math — no network, no mocks needed to test.
@@ -125,6 +151,8 @@ export interface XStockRewardDeps {
   fetchScaledState: typeof fetchScaledUiAmountState;
   /** Injected so tests never touch the chain. */
   submit: typeof submitToken2022Transfer;
+  /** Optional daily cap. Absent means uncapped (tests, scripts). */
+  budget: PayoutBudget | null;
 }
 
 function xstockDeps(overrides?: Partial<XStockRewardDeps>): XStockRewardDeps {
@@ -135,6 +163,7 @@ function xstockDeps(overrides?: Partial<XStockRewardDeps>): XStockRewardDeps {
     fetchPrices: overrides?.fetchPrices ?? fetchXStockPrices,
     fetchScaledState: overrides?.fetchScaledState ?? fetchScaledUiAmountState,
     submit: overrides?.submit ?? submitToken2022Transfer,
+    budget: overrides?.budget ?? null,
   };
 }
 
@@ -156,7 +185,7 @@ export async function sendXStockReward(
   if (!existing) throw new RewardError(`No receipt found with id ${receiptId}`);
   if (existing.txSignature) return existing.txSignature;
 
-  const brand = BRAND_BY_MINT[xstockMint];
+  const brand = brandForMint(xstockMint);
   if (!brand) throw new RewardError(`${xstockMint} is not a configured xStock mint.`);
 
   const claimed = await deps.store.claimLeg(receiptId, 'xstock');
@@ -167,10 +196,16 @@ export async function sendXStockReward(
     throw new RewardError(`A payout for receipt ${receiptId} is already in flight.`);
   }
 
+  // Budget reserved by THIS call, if any — only the caller holding the claim
+  // reserves, so a double-clicked confirm cannot count one payout twice.
+  let reservedUsd = 0;
+
   try {
     // 2-3. Price via the shared dual-source path (Jupiter, then underlying).
-    const prices = await deps.fetchPrices([xstockMint]);
-    const price = prices[xstockMint]?.usd;
+    // Always by the brand's mainnet mint: a devnet stand-in has no market of
+    // its own, and pricing it as the real token keeps the maths identical.
+    const prices = await deps.fetchPrices([brand.mint]);
+    const price = prices[brand.mint]?.usd;
     if (price == null) {
       throw new RewardError(`No price available for ${brand.ticker}; refusing to guess.`);
     }
@@ -178,13 +213,23 @@ export async function sendXStockReward(
     // 4-5. Amount, via the shared multiplier helpers.
     const mint = new PublicKey(xstockMint);
     const { multiplier } = await deps.fetchScaledState(deps.connection, mint);
-    const { tokenAmount, rawAmount } = computeRewardAmount({
+    const { rewardUsd, tokenAmount, rawAmount } = computeRewardAmount({
       spendUsd,
       pctBack,
       price,
       decimals: brand.decimals,
       multiplier,
     });
+
+    // Circuit breaker, after the amount is known and before anything is sent.
+    if (deps.budget) {
+      if (!(await deps.budget.reserve(rewardUsd))) {
+        throw new PayoutPausedError(
+          "Stackd has reached today's payout limit. Your receipt is saved — claim it again tomorrow.",
+        );
+      }
+      reservedUsd = rewardUsd;
+    }
 
     await deps.store.recordXStockAmount(receiptId, tokenAmount);
 
@@ -201,9 +246,66 @@ export async function sendXStockReward(
     await deps.store.recordPayout(receiptId, 'xstock', signature);
     return signature;
   } catch (error) {
-    // Free the claim so the user can retry.
+    // Sent but unconfirmed: it may still land. Keep both the claim and the
+    // reserved budget, so a retry can neither resend nor overspend.
+    if (error instanceof PayoutUnconfirmedError) throw error;
+
+    // Otherwise nothing landed: free the budget and the claim so the user can retry.
+    if (reservedUsd > 0 && deps.budget) await deps.budget.release(reservedUsd);
     await deps.store.releaseLeg(receiptId, 'xstock');
     throw error;
+  }
+}
+
+/**
+ * Send, then establish the outcome — never assume it.
+ *
+ * Two gaps this closes:
+ *   - `confirmTransaction` RESOLVES (does not throw) when a transaction lands
+ *     but fails on chain. Unchecked, a failed transfer was recorded as paid.
+ *   - When confirmation itself throws (RPC hiccup, timeout), the transfer may
+ *     still have landed. Treating that as "failed" frees the claim, and the
+ *     user's retry sends a second payout. So ask the chain directly, until the
+ *     blockhash expires — after which the transaction provably cannot land.
+ */
+export async function sendAndConfirm(
+  connection: Connection,
+  tx: VersionedTransaction,
+  blockhash: string,
+  lastValidBlockHeight: number,
+): Promise<string> {
+  const signature = await connection.sendTransaction(tx, { maxRetries: 3 });
+
+  try {
+    const { value } = await connection.confirmTransaction(
+      { signature, blockhash, lastValidBlockHeight },
+      'confirmed',
+    );
+    if (value.err) {
+      throw new RewardError(`Transfer ${signature} failed on chain: ${JSON.stringify(value.err)}`);
+    }
+    return signature;
+  } catch (error) {
+    if (error instanceof RewardError) throw error; // landed and failed: definitely not paid
+
+    // Outcome unknown. Poll until it shows up or its blockhash expires.
+    const deadline = Date.now() + 90_000;
+    while (Date.now() < deadline) {
+      const [status] = (
+        await connection.getSignatureStatuses([signature], { searchTransactionHistory: true })
+      ).value;
+      if (status?.err) {
+        throw new RewardError(`Transfer ${signature} failed on chain: ${JSON.stringify(status.err)}`);
+      }
+      if (status?.confirmationStatus === 'confirmed' || status?.confirmationStatus === 'finalized') {
+        return signature;
+      }
+      if ((await connection.getBlockHeight('confirmed')) > lastValidBlockHeight) {
+        throw error; // expired unlanded: safe to retry
+      }
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+    }
+    throw new PayoutUnconfirmedError(signature);
   }
 }
 
@@ -288,13 +390,7 @@ export async function submitToken2022Transfer(args: {
   const tx = new VersionedTransaction(message);
   tx.sign([treasury]);
 
-  const signature = await connection.sendTransaction(tx, { maxRetries: 3 });
-  await connection.confirmTransaction(
-    { signature, blockhash, lastValidBlockHeight },
-    'confirmed',
-  );
-
-  return signature;
+  return sendAndConfirm(connection, tx, blockhash, lastValidBlockHeight);
 }
 
 // ---------------------------------------------------------------------------
@@ -367,7 +463,9 @@ export async function sendStackdBonus(
     const bonusUsd = spendUsd * bonusRate;
     // null means the curve could not be quoted (pool unset, RPC down, not yet
     // launched). Never substitute a guess — pause instead.
-    const price = await deps.quotePrice();
+    // Pass the connection: left to default, the quote reads mainnet even when
+    // the payout is running on devnet.
+    const price = await deps.quotePrice(deps.connection);
     if (price == null || !Number.isFinite(price) || price <= 0) {
       console.warn('STACKD bonus vault low, pausing bonus leg (no usable price)');
       await deps.store.releaseLeg(receiptId, 'bonus');
@@ -406,7 +504,10 @@ export async function sendStackdBonus(
     await deps.store.recordPayout(receiptId, 'bonus', signature);
     return signature;
   } catch (error) {
-    await deps.store.releaseLeg(receiptId, 'bonus');
+    // Sent but unconfirmed: keep the claim so a retry cannot pay the bonus twice.
+    if (!(error instanceof PayoutUnconfirmedError)) {
+      await deps.store.releaseLeg(receiptId, 'bonus');
+    }
     // The bonus is best-effort: never let it fail the xStock payout.
     console.warn('STACKD bonus leg failed, continuing without it:', error);
     return null;
@@ -481,16 +582,5 @@ export async function submitLegacyTransfer(args: {
   const tx = new VersionedTransaction(message);
   tx.sign([treasury]);
 
-  const signature = await connection.sendTransaction(tx, { maxRetries: 3 });
-  await connection.confirmTransaction(
-    { signature, blockhash, lastValidBlockHeight },
-    'confirmed',
-  );
-
-  return signature;
-}
-
-/** Solscan link for a signature, for the confirmation UI. */
-export function solscanTx(signature: string): string {
-  return `https://solscan.io/tx/${signature}`;
+  return sendAndConfirm(connection, tx, blockhash, lastValidBlockHeight);
 }

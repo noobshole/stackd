@@ -4,17 +4,16 @@
  * The shape mirrors the Prisma `Receipt` model from the project brief, plus
  * `bonusTxSignature` for the second (STACKD) leg.
  *
- * ROADMAP — this ships with an in-memory implementation because the project has
- * no DATABASE_URL yet. That is genuinely dangerous for a payout system: process
- * memory dies on deploy, so a receipt paid out before a restart looks unpaid
- * afterwards and CAN BE PAID TWICE. Swap `InMemoryReceiptStore` for a Prisma
- * implementation of the same interface before real money moves.
+ * Two implementations: `InMemoryReceiptStore` here (tests, local dev) and the
+ * Postgres store in apps/api/src/lib/store/pg-receipt-store.ts, which the API
+ * installs via `useReceiptStore` whenever DATABASE_URL is set — and requires on
+ * mainnet. In-memory state dies on restart, taking the duplicate history and
+ * payout records with it, which is not acceptable once money is real.
  *
- * When you do, implement `claimLeg` as a conditional UPDATE rather than a
- * read-then-write, e.g.
+ * `claimLeg` in Postgres is a conditional UPDATE rather than a read-then-write:
  *
- *   UPDATE "Receipt" SET "txSignature" = '<in-flight>'
- *   WHERE id = $1 AND "txSignature" IS NULL
+ *   UPDATE stackd.receipts SET xstock_in_flight = true
+ *   WHERE id = $1 AND tx_signature IS NULL AND NOT xstock_in_flight
  *   RETURNING id;
  *
  * so two concurrent confirms cannot both pass the check and both transfer.
@@ -39,6 +38,24 @@ export interface ReceiptRecord {
   fxRate?: number;
   /** Publication date of fxRate (YYYY-MM-DD). Null for USD receipts. */
   fxRateDate?: string | null;
+  /**
+   * Fraud controls. A receipt is identified two ways, and a store must refuse
+   * a second receipt matching either — from ANY wallet, at ANY time:
+   *   imageSha256  — the exact uploaded bytes (catches a straight re-upload)
+   *   fingerprints — what the receipt says: merchant, date, total, and one key
+   *                  per identifying detail (transaction number, time), so a
+   *                  re-photographed copy matches even when one detail is read
+   *                  differently the second time
+   * `fingerprint` is the primary key of the set, kept on the receipt row.
+   */
+  imageSha256?: string;
+  fingerprint?: string;
+  fingerprints?: string[];
+  /** Purchase date as printed (YYYY-MM-DD). */
+  receiptDate?: string | null;
+  receiptNumber?: string | null;
+  /** Time of purchase, normalised HH:MM. */
+  receiptTime?: string | null;
   xstockAmount: number | null;
   imageUrl: string | null;
   claudeConfidence: number | null;
@@ -54,8 +71,30 @@ export interface ReceiptRecord {
 /** Which payout leg a claim refers to. */
 export type PayoutLeg = 'xstock' | 'bonus';
 
+/** Which identity a duplicate matched on. */
+export type DuplicateKind = 'image' | 'fingerprint';
+
+/** All identity keys of a receipt; older records carry only the primary one. */
+export function fingerprintKeys(receipt: Pick<ReceiptRecord, 'fingerprint' | 'fingerprints'>): string[] {
+  if (receipt.fingerprints?.length) return receipt.fingerprints;
+  return receipt.fingerprint ? [receipt.fingerprint] : [];
+}
+
 export interface ReceiptStore {
   get(receiptId: string): Promise<ReceiptRecord | null>;
+
+  /**
+   * Has a receipt with this image, or matching ANY of these fingerprints,
+   * been seen before, by anyone?
+   */
+  findDuplicate(keys: { imageSha256?: string; fingerprints?: string[] }): Promise<DuplicateKind | null>;
+
+  /**
+   * Insert a receipt. Throws {@link DuplicateReceiptError} when its image or
+   * any of its fingerprints already exists — the insert itself is the
+   * race-safe check, so two simultaneous submissions of one receipt cannot
+   * both get through.
+   */
   create(
     receipt: Omit<
       ReceiptRecord,
@@ -87,6 +126,17 @@ export class ReceiptNotFoundError extends Error {
   }
 }
 
+export class DuplicateReceiptError extends Error {
+  constructor(readonly kind: DuplicateKind) {
+    super(`A receipt with the same ${kind === 'image' ? 'image' : 'details'} was already claimed.`);
+  }
+}
+
+/**
+ * In-memory store. Fine for tests and a single local process; everything is
+ * lost on restart, including the duplicate history — use the Postgres store
+ * (apps/api) anywhere real money moves.
+ */
 export class InMemoryReceiptStore implements ReceiptStore {
   private readonly rows = new Map<string, ReceiptRecord>();
   /** Legs currently mid-transfer, so a concurrent call cannot also send. */
@@ -100,12 +150,32 @@ export class InMemoryReceiptStore implements ReceiptStore {
     return this.rows.get(receiptId) ?? null;
   }
 
+  async findDuplicate(keys: {
+    imageSha256?: string;
+    fingerprints?: string[];
+  }): Promise<DuplicateKind | null> {
+    const wanted = new Set(keys.fingerprints ?? []);
+    for (const row of this.rows.values()) {
+      if (keys.imageSha256 && row.imageSha256 === keys.imageSha256) return 'image';
+      if (fingerprintKeys(row).some((key) => wanted.has(key))) return 'fingerprint';
+    }
+    return null;
+  }
+
   async create(
     receipt: Omit<
       ReceiptRecord,
       'status' | 'txSignature' | 'bonusTxSignature' | 'createdAt' | 'confirmedAt'
     >,
   ): Promise<ReceiptRecord> {
+    // Single-threaded, so check-then-insert is atomic here. Postgres relies on
+    // its unique indexes instead.
+    const duplicate = await this.findDuplicate({
+      imageSha256: receipt.imageSha256,
+      fingerprints: fingerprintKeys(receipt),
+    });
+    if (duplicate) throw new DuplicateReceiptError(duplicate);
+
     const row: ReceiptRecord = {
       ...receipt,
       status: 'pending',
@@ -165,5 +235,24 @@ export class InMemoryReceiptStore implements ReceiptStore {
   }
 }
 
-/** Process-wide default. Replace with the Prisma-backed store. */
-export const defaultReceiptStore = new InMemoryReceiptStore();
+let activeStore: ReceiptStore = new InMemoryReceiptStore();
+
+/**
+ * Swap the process-wide store. apps/api calls this at boot with the Postgres
+ * store when DATABASE_URL is set; everything that holds `defaultReceiptStore`
+ * follows automatically, because it delegates rather than being an instance.
+ */
+export function useReceiptStore(store: ReceiptStore): void {
+  activeStore = store;
+}
+
+/** Process-wide default. Delegates to whatever {@link useReceiptStore} set. */
+export const defaultReceiptStore: ReceiptStore = {
+  get: (id) => activeStore.get(id),
+  findDuplicate: (keys) => activeStore.findDuplicate(keys),
+  create: (receipt) => activeStore.create(receipt),
+  claimLeg: (id, leg) => activeStore.claimLeg(id, leg),
+  releaseLeg: (id, leg) => activeStore.releaseLeg(id, leg),
+  recordPayout: (id, leg, sig) => activeStore.recordPayout(id, leg, sig),
+  recordXStockAmount: (id, amount) => activeStore.recordXStockAmount(id, amount),
+};

@@ -7,6 +7,7 @@
  * network and the addresses it is about to touch before doing anything.
  */
 
+import fs from 'node:fs';
 import path from 'node:path';
 import { config as loadEnv } from 'dotenv';
 import { Connection, Keypair, PublicKey } from '@solana/web3.js';
@@ -15,7 +16,27 @@ import bs58 from 'bs58';
 // The secrets live with the API in apps/api/.env, but `npm run` starts these
 // scripts at the repo root. `dotenv/config` only reads ./.env, which does not
 // exist there, so every variable silently came back unset.
-loadEnv({ path: path.resolve(__dirname, '../../apps/api/.env') });
+const API_ENV_PATH = path.resolve(__dirname, '../../apps/api/.env');
+loadEnv({ path: API_ENV_PATH });
+
+/**
+ * Set variables in apps/api/.env in place (and in process.env). Existing keys
+ * are replaced, new ones appended. Values are never logged — this is how a
+ * script stores a generated secret without it ever reaching a terminal.
+ */
+export function writeEnvVars(values: Record<string, string>): void {
+  let text = fs.readFileSync(API_ENV_PATH, 'utf8');
+  for (const [key, value] of Object.entries(values)) {
+    const line = `${key}=${value}`;
+    const pattern = new RegExp(`^${key}=.*$`, 'm');
+    // Function replacer: a `$` in the value must not be read as a pattern.
+    text = pattern.test(text)
+      ? text.replace(pattern, () => line)
+      : `${text.replace(/\s*$/, '')}\n${line}\n`;
+    process.env[key] = value;
+  }
+  fs.writeFileSync(API_ENV_PATH, text);
+}
 
 export type Cluster = 'devnet' | 'mainnet';
 
@@ -78,8 +99,8 @@ const BURNED_PUBKEYS = new Set<string>([
   'DnqLbDJLAhhvDLq7XmVc3jxirARcyEBsWh6aX4yF2sqQ',
 ]);
 
-export function assertKeyUsableOn(keypair: Keypair, cluster: Cluster): void {
-  const pubkey = keypair.publicKey.toBase58();
+export function assertKeyUsableOn(key: Keypair | PublicKey, cluster: Cluster): void {
+  const pubkey = (key instanceof Keypair ? key.publicKey : key).toBase58();
   if (cluster === 'mainnet' && BURNED_PUBKEYS.has(pubkey)) {
     throw new Error(
       [
@@ -91,6 +112,17 @@ export function assertKeyUsableOn(keypair: Keypair, cluster: Cluster): void {
         'Generate a fresh keypair for mainnet:  npm run dbc:keygen',
       ].join('\n'),
     );
+  }
+}
+
+/** Parse an optional public address from an env var. Null when unset. */
+export function optionalAddress(envVar: string): PublicKey | null {
+  const raw = process.env[envVar]?.trim();
+  if (!raw) return null;
+  try {
+    return new PublicKey(raw);
+  } catch {
+    throw new Error(`${envVar} is not a valid Solana address.`);
   }
 }
 

@@ -17,6 +17,7 @@
     "dbc:claim-fees": "tsx scripts/dbc/claim-fees.ts",
     "dbc:simulate": "tsx scripts/dbc/simulate-graduation.ts",
     "dbc:withdraw-leftover": "tsx scripts/dbc/withdraw-leftover.ts",
+    "devnet:setup": "tsx scripts/devnet/setup.ts",
     "test": "npm test --workspace=@stackd/solana --workspace=@stackd/api",
     "dbc:keygen": "tsx scripts/dbc/new-keypair.ts"
   },

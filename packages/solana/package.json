@@ -23,7 +23,7 @@
     "decimal.js": "^10.6.0"
   },
   "scripts": {
-    "test": "node --import tsx --test src/rewards.test.ts src/dbc.test.ts",
+    "test": "node --import tsx --test src/rewards.test.ts src/dbc.test.ts src/safety.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
