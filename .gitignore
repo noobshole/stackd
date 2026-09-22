@@ -11,6 +11,9 @@ dist/
 .env.local
 .env.*.local
 
+# real receipt photos for end-to-end runs — personal data, never commit
+.e2e/
+
 # logs
 npm-debug.log*
 yarn-debug.log*
