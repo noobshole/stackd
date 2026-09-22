@@ -16,7 +16,7 @@ import bs58 from 'bs58';
 // The secrets live with the API in apps/api/.env, but `npm run` starts these
 // scripts at the repo root. `dotenv/config` only reads ./.env, which does not
 // exist there, so every variable silently came back unset.
-const API_ENV_PATH = path.resolve(__dirname, '../../apps/api/.env');
+export const API_ENV_PATH = path.resolve(__dirname, '../../apps/api/.env');
 loadEnv({ path: API_ENV_PATH });
 
 /**
@@ -39,6 +39,52 @@ export function writeEnvVars(values: Record<string, string>): void {
 }
 
 export type Cluster = 'devnet' | 'mainnet';
+
+/** What genesis writes into the token, permanently (TokenAuthorityOption.Immutable). */
+export const STACKD_TOKEN = {
+  name: 'Stackd',
+  symbol: 'STACKD',
+  metadataUri:
+    process.env.STACKD_METADATA_URI ?? 'https://stackd-web-eosin.vercel.app/token.json',
+} as const;
+
+/**
+ * The metadata URI is written into the token at genesis, and with
+ * TokenAuthorityOption.Immutable nobody holds update authority — it can never
+ * be changed. A URI that 404s means a permanently nameless, logo-less token in
+ * every wallet and on Meteora. So prove it resolves first: the JSON parses,
+ * its name and symbol match what we mint, and its image loads.
+ * Returns the problems found; empty means ready.
+ */
+export async function checkMetadata(): Promise<string[]> {
+  const { name, symbol, metadataUri } = STACKD_TOKEN;
+  const problems: string[] = [];
+  let json: { name?: unknown; symbol?: unknown; image?: unknown };
+  try {
+    const res = await fetch(metadataUri, { signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) return [`${metadataUri} returned HTTP ${res.status}.`];
+    json = (await res.json()) as typeof json;
+  } catch (error) {
+    return [`${metadataUri} could not be fetched as JSON: ${(error as Error).message}`];
+  }
+
+  if (json.name !== name) problems.push(`metadata name is "${json.name}", expected "${name}".`);
+  if (json.symbol !== symbol) problems.push(`metadata symbol is "${json.symbol}", expected "${symbol}".`);
+
+  if (typeof json.image !== 'string' || !json.image) {
+    problems.push('metadata has no image URL.');
+  } else {
+    try {
+      const img = await fetch(json.image, { signal: AbortSignal.timeout(10_000) });
+      const type = img.headers.get('content-type') ?? '';
+      if (!img.ok) problems.push(`image ${json.image} returned HTTP ${img.status}.`);
+      else if (!type.startsWith('image/')) problems.push(`image ${json.image} is "${type}", not an image.`);
+    } catch (error) {
+      problems.push(`image ${json.image} could not be fetched: ${(error as Error).message}`);
+    }
+  }
+  return problems;
+}
 
 export function resolveCluster(): Cluster {
   const raw = (process.env.DBC_CLUSTER ?? 'devnet').trim().toLowerCase();
@@ -90,7 +136,7 @@ export function getConnection(cluster: Cluster): Connection {
  *
  * Add to this list rather than relying on remembering.
  */
-const BURNED_PUBKEYS = new Set<string>([
+export const BURNED_PUBKEYS: ReadonlySet<string> = new Set<string>([
   // Payer secret pasted into a Claude Code session, 2026-09-17. Never funded,
   // zero transactions. Purged from .env; kept here so it can never come back.
   '8AhsYWhQpQ43xkMsNey1k3utvyCLuRyHVeDFKr8WJvab',

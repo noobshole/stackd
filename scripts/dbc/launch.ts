@@ -32,8 +32,10 @@ import {
   getDbcClient,
 } from '../../packages/solana/src/dbc.js';
 import {
+  STACKD_TOKEN,
   assertFunded,
   banner,
+  checkMetadata,
   fail,
   getConnection,
   optionalAddress,
@@ -43,46 +45,7 @@ import {
   assertKeyUsableOn,
 } from './_shared.js';
 
-const TOKEN_NAME = 'Stackd';
-const TOKEN_SYMBOL = 'STACKD';
-const METADATA_URI =
-  process.env.STACKD_METADATA_URI ?? 'https://stackd-web-eosin.vercel.app/token.json';
-
-/**
- * The metadata URI is written into the token at genesis, and with
- * TokenAuthorityOption.Immutable nobody holds update authority — it can never
- * be changed. A URI that 404s means a permanently nameless, logo-less token in
- * every wallet and on Meteora. So on mainnet, prove it resolves first: the
- * JSON parses, its name and symbol match what we mint, and its image loads.
- */
-async function checkMetadata(): Promise<string[]> {
-  const problems: string[] = [];
-  let json: { name?: unknown; symbol?: unknown; image?: unknown };
-  try {
-    const res = await fetch(METADATA_URI, { signal: AbortSignal.timeout(10_000) });
-    if (!res.ok) return [`${METADATA_URI} returned HTTP ${res.status}.`];
-    json = (await res.json()) as typeof json;
-  } catch (error) {
-    return [`${METADATA_URI} could not be fetched as JSON: ${(error as Error).message}`];
-  }
-
-  if (json.name !== TOKEN_NAME) problems.push(`metadata name is "${json.name}", expected "${TOKEN_NAME}".`);
-  if (json.symbol !== TOKEN_SYMBOL) problems.push(`metadata symbol is "${json.symbol}", expected "${TOKEN_SYMBOL}".`);
-
-  if (typeof json.image !== 'string' || !json.image) {
-    problems.push('metadata has no image URL.');
-  } else {
-    try {
-      const img = await fetch(json.image, { signal: AbortSignal.timeout(10_000) });
-      const type = img.headers.get('content-type') ?? '';
-      if (!img.ok) problems.push(`image ${json.image} returned HTTP ${img.status}.`);
-      else if (!type.startsWith('image/')) problems.push(`image ${json.image} is "${type}", not an image.`);
-    } catch (error) {
-      problems.push(`image ${json.image} could not be fetched: ${(error as Error).message}`);
-    }
-  }
-  return problems;
-}
+const { name: TOKEN_NAME, symbol: TOKEN_SYMBOL, metadataUri: METADATA_URI } = STACKD_TOKEN;
 
 async function main(): Promise<void> {
   const cluster = resolveCluster();

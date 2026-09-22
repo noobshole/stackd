@@ -18,6 +18,7 @@
     "dbc:simulate": "tsx scripts/dbc/simulate-graduation.ts",
     "dbc:withdraw-leftover": "tsx scripts/dbc/withdraw-leftover.ts",
     "devnet:setup": "tsx scripts/devnet/setup.ts",
+    "mainnet:check": "tsx scripts/mainnet/check.ts",
     "test": "npm test --workspace=@stackd/solana --workspace=@stackd/api",
     "dbc:keygen": "tsx scripts/dbc/new-keypair.ts"
   },
