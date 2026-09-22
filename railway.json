@@ -1,0 +1,21 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "RAILPACK",
+    "buildCommand": "npm run typecheck --workspace=@stackd/api",
+    "watchPatterns": [
+      "/apps/api/**",
+      "/packages/solana/**",
+      "/package.json",
+      "/package-lock.json",
+      "/railway.json"
+    ]
+  },
+  "deploy": {
+    "startCommand": "npm run start --workspace=@stackd/api",
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 120,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 5
+  }
+}
