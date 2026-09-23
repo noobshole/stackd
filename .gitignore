@@ -6,10 +6,11 @@ dist/
 .vercel
 .turbo
 
-# env — never commit real keys
+# env — never commit real keys. `.env.*` also covers backups such as
+# .env.devnet / .env.mainnet made when switching clusters.
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 
 # real receipt photos for end-to-end runs — personal data, never commit
 .e2e/
