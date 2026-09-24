@@ -118,6 +118,13 @@ export interface ReceiptStore {
 
   /** Record the resolved share quantity once pricing is known. */
   recordXStockAmount(receiptId: string, xstockAmount: number): Promise<void>;
+
+  /**
+   * Has this wallet been paid for any receipt other than `exceptReceiptId`?
+   * Paid means the xStock leg landed. Used to hold the $STACKD bonus back
+   * until a wallet's second paid receipt.
+   */
+  hasPriorPayout(walletAddress: string, exceptReceiptId: string): Promise<boolean>;
 }
 
 export class ReceiptNotFoundError extends Error {
@@ -228,6 +235,15 @@ export class InMemoryReceiptStore implements ReceiptStore {
     row.xstockAmount = xstockAmount;
   }
 
+  async hasPriorPayout(walletAddress: string, exceptReceiptId: string): Promise<boolean> {
+    for (const row of this.rows.values()) {
+      if (row.walletAddress === walletAddress && row.id !== exceptReceiptId && row.txSignature) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /** Test seam. */
   __reset(): void {
     this.rows.clear();
@@ -255,4 +271,5 @@ export const defaultReceiptStore: ReceiptStore = {
   releaseLeg: (id, leg) => activeStore.releaseLeg(id, leg),
   recordPayout: (id, leg, sig) => activeStore.recordPayout(id, leg, sig),
   recordXStockAmount: (id, amount) => activeStore.recordXStockAmount(id, amount),
+  hasPriorPayout: (wallet, exceptId) => activeStore.hasPriorPayout(wallet, exceptId),
 };

@@ -213,4 +213,15 @@ export class PgReceiptStore implements ReceiptStore {
       xstockAmount,
     ]);
   }
+
+  /** Cluster-scoped: a devnet test payout never counts toward mainnet. */
+  async hasPriorPayout(walletAddress: string, exceptReceiptId: string): Promise<boolean> {
+    const { rows } = await getPool().query<{ paid: boolean }>(
+      `select exists (select 1 from stackd.receipts
+                       where cluster = $1 and wallet_address = $2
+                         and id <> $3 and tx_signature is not null) as paid`,
+      [this.cluster, walletAddress, exceptReceiptId],
+    );
+    return rows[0].paid;
+  }
 }

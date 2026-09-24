@@ -9,11 +9,15 @@ import { LegalSection, PageShell } from '@/components/layout/PageShell';
  *     stored, which is what makes duplicates detectable without keeping photos
  *   - IP + wallet + timestamp rows live in stackd.submission_attempts and are
  *     deleted after 25 hours (PgGuards.tryAttempt cleanup)
+ *   - a wallet's earlier payouts are read for one decision only: whether the
+ *     $STACKD bonus applies (hasPriorPayout, apps/api/src/routes/confirm-receipt.ts)
+ *   - usage is counted in aggregate only: scripts/mainnet/check.ts reports
+ *     totals and a repeat rate, and never prints an address
  *   - no analytics, no tracking cookies anywhere in apps/web
  * If any of that changes, this page has to change with it.
  */
 
-const UPDATED = '2026-09-22';
+const UPDATED = '2026-09-24';
 const CONTACT = 'https://github.com/noobshole/stackd/issues';
 
 export const metadata: Metadata = {
@@ -68,8 +72,13 @@ export default function PrivacyPage() {
         <p>
           To read your receipt, to check it is genuine and has not already been claimed, to convert
           the total to US dollars, to send the payout, and to stop one person draining the treasury
-          with repeated or automated submissions. Nothing is used for advertising or profiling, and
-          nothing is sold.
+          with repeated or automated submissions. Your wallet&apos;s earlier payouts decide one more
+          thing: the $STACKD bonus starts from your second paid receipt.
+        </p>
+        <p>
+          We also count receipts in aggregate — how many wallets come back for a second claim, for
+          example — to learn whether Stackd works. Those figures are totals and never identify a
+          person or a wallet. Nothing is used for advertising or profiling, and nothing is sold.
         </p>
       </LegalSection>
 

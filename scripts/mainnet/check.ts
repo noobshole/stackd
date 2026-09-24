@@ -54,8 +54,13 @@ async function assertNotSquadsAccount(conn: Connection | undefined, address: Pub
 function addressKind(address: PublicKey): string {
   return PublicKey.isOnCurve(address.toBytes()) ? 'a regular wallet' : 'a PDA, e.g. a Squads vault';
 }
-/** Rent for a recipient's Token-2022 xStock account plus its $STACKD account, plus fees. */
-const SOL_PER_NEW_WALLET = 0.0045;
+
+/**
+ * Rent for a recipient's Token-2022 xStock account (179 bytes, 0.00156 SOL)
+ * plus its $STACKD account (165 bytes, 0.00149 SOL), plus fees. Measured with
+ * getMinimumBalanceForRentExemption on mainnet, 2026-09-24.
+ */
+const SOL_PER_NEW_WALLET = 0.0031;
 /** A typical payout, for turning stock into "about N receipts". */
 const TYPICAL_PAYOUT_USD = 0.25;
 
@@ -164,7 +169,7 @@ async function main(): Promise<void> {
     if (env('HEALTH_SECRET').length >= 16) report('ok', 'HEALTH_SECRET set (16+ chars)');
     else report('warn', 'HEALTH_SECRET missing or short: /health/treasury stays disabled');
   });
-  report('info', `daily payout cap: $${env('DAILY_PAYOUT_CAP_USD') || '25'} (0 pauses all payouts)`);
+  report('info', `daily payout cap: $${env('DAILY_PAYOUT_CAP_USD') || '25'} of rewards plus new-account rent (0 pauses all payouts)`);
 
   heading('Keys');
   await check('Treasury key', async () => {
@@ -291,6 +296,55 @@ async function main(): Promise<void> {
       const held = Number(bal?.value.uiAmount ?? 0);
       if (held > 0) report('ok', `bonus vault holds ${held.toLocaleString('en-US')} $STACKD`);
       else report('warn', 'bonus vault is empty: the $STACKD bonus stays paused until you buy some into the treasury');
+    }
+  });
+
+  heading('Usage (mainnet)');
+  await check('Repeat rate', async () => {
+    if (!env('DATABASE_URL')) return; // already reported under Configuration
+    const client = new pg.Client({ connectionString: env('DATABASE_URL'), ssl: { rejectUnauthorized: false } });
+    await client.connect();
+    try {
+      // Aggregate only — counts and rates, never an address.
+      const { rows } = await client.query<{
+        wallets: number;
+        receipts: number;
+        returned: number;
+        settled: number;
+        settled_returned: number;
+      }>(
+        `with w as (
+           select wallet_address, count(*) as paid,
+                  min(coalesce(confirmed_at, created_at)) as first_paid
+             from stackd.receipts
+            where cluster = 'mainnet' and tx_signature is not null
+            group by wallet_address
+         )
+         select count(*)::int as wallets,
+                coalesce(sum(paid), 0)::int as receipts,
+                (count(*) filter (where paid >= 2))::int as returned,
+                (count(*) filter (where first_paid < now() - interval '7 days'))::int as settled,
+                (count(*) filter (where first_paid < now() - interval '7 days' and paid >= 2))::int
+                  as settled_returned
+           from w`,
+      );
+      const u = rows[0];
+      if (u.wallets === 0) {
+        report('info', 'no mainnet payouts yet: the repeat rate appears after the first');
+        return;
+      }
+      const pct = (n: number, d: number) => `${Math.round((n / d) * 100)}%`;
+      report('info', `${u.receipts} paid receipt(s) from ${u.wallets} wallet(s)`);
+      report('info', `repeat rate: ${pct(u.returned, u.wallets)} (${u.returned} of ${u.wallets} wallets claimed a second receipt)`);
+      // A wallet paid an hour ago has had no chance to return; counting it as
+      // "did not" drags the rate down. This cohort has had at least a week.
+      if (u.settled > 0) {
+        report('info', `wallets a week past their first payout: ${pct(u.settled_returned, u.settled)} returned (${u.settled_returned} of ${u.settled})`);
+      } else {
+        report('info', 'no wallet is a week past its first payout yet, so the rate above still undercounts');
+      }
+    } finally {
+      await client.end();
     }
   });
 

@@ -394,3 +394,85 @@ describe('test_vault_pause', () => {
     assert.equal(signature, null);
   });
 });
+
+// ---------------------------------------------------------------------------
+
+describe('test_bonus_rent_budget', () => {
+  const healthy = {
+    connection: null as unknown as Connection,
+    treasury: { publicKey: new PublicKey(RECIPIENT) } as unknown as Keypair,
+    config: {
+      mint: new PublicKey('So11111111111111111111111111111111111111112'),
+      decimals: 9,
+      minVaultBalance: 1000,
+    } satisfies StackdConfig,
+    quotePrice: async () => 0.01,
+    vaultBalance: async () => 50_000,
+  };
+  const bonus = (receiptId: string) => ({
+    recipientWallet: RECIPIENT,
+    spendUsd: 100,
+    bonusRate: 0.02,
+    receiptId,
+  });
+
+  it("pauses the bonus when the day's budget cannot cover a new $STACKD account", async () => {
+    const store = new InMemoryReceiptStore();
+    await seedReceipt(store, 'receipt-bonus-rent');
+    let submitCalled = false;
+
+    const signature = await sendStackdBonus(bonus('receipt-bonus-rent'), {
+      store,
+      ...healthy,
+      budget: { reserve: async () => false, release: async () => {} },
+      openingCostUsd: async () => 0.4,
+      submit: (async () => {
+        submitCalled = true;
+        return 'nope';
+      }) as never,
+    });
+
+    assert.equal(signature, null, 'a paused bonus returns null, not an error');
+    assert.equal(submitCalled, false);
+    assert.equal(await store.claimLeg('receipt-bonus-rent', 'bonus'), true, 'the claim was released');
+  });
+
+  it('returns the rent to the budget when the bonus send fails', async () => {
+    const store = new InMemoryReceiptStore();
+    await seedReceipt(store, 'receipt-bonus-fail');
+    let used = 0;
+
+    const signature = await sendStackdBonus(bonus('receipt-bonus-fail'), {
+      store,
+      ...healthy,
+      budget: {
+        reserve: async (usd) => ((used += usd), true),
+        release: async (usd) => void (used -= usd),
+      },
+      openingCostUsd: async () => 0.4,
+      submit: (async () => {
+        throw new Error('rpc down');
+      }) as never,
+    });
+
+    assert.equal(signature, null);
+    assert.equal(used, 0);
+  });
+
+  it('reserves nothing when the account already exists', async () => {
+    const store = new InMemoryReceiptStore();
+    await seedReceipt(store, 'receipt-bonus-existing');
+    const reserved: number[] = [];
+
+    const signature = await sendStackdBonus(bonus('receipt-bonus-existing'), {
+      store,
+      ...healthy,
+      budget: { reserve: async (usd) => (reserved.push(usd), true), release: async () => {} },
+      openingCostUsd: async () => 0,
+      submit: (async () => 'sig-bonus') as never,
+    });
+
+    assert.equal(signature, 'sig-bonus');
+    assert.deepEqual(reserved, []);
+  });
+});

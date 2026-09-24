@@ -529,9 +529,10 @@ function Result({
 /**
  * Landed payouts.
  *
- * Both legs confirmed shows two rows. A paused bonus shows one row plus a quiet
- * note — deliberately not an error, because a refilling vault is a normal
- * operating state and the user still got paid the thing they came for.
+ * Both legs confirmed shows two rows. A held or paused bonus shows one row plus
+ * a quiet note — deliberately not an error: the bonus starts from a wallet's
+ * second receipt, a refilling vault is a normal operating state, and either way
+ * the user got paid the thing they came for.
  */
 function Claimed({ claim }: { claim: ConfirmResponse }) {
   return (
@@ -548,10 +549,17 @@ function Claimed({ claim }: { claim: ConfirmResponse }) {
         {claim.bonus && <PayoutRow label="STACKD bonus" href={claim.bonus.solscan} />}
       </ul>
 
-      {claim.bonusPaused && (
+      {claim.bonusFirstClaim ? (
         <p className="mt-3 rounded-lg bg-sunken px-3 py-2 text-2xs leading-relaxed text-ink-muted">
-          Bonus paused — vault refilling. Your {claim.xstock.ticker} is on its way.
+          Your $STACKD bonus starts from your next receipt. Your {claim.xstock.ticker} is on its
+          way.
         </p>
+      ) : (
+        claim.bonusPaused && (
+          <p className="mt-3 rounded-lg bg-sunken px-3 py-2 text-2xs leading-relaxed text-ink-muted">
+            Bonus paused — vault refilling. Your {claim.xstock.ticker} is on its way.
+          </p>
+        )
       )}
     </div>
   );

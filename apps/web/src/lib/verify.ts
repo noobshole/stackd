@@ -82,6 +82,11 @@ export interface ConfirmResponse {
   /** Null when the bonus vault is paused. This is normal, not a failure. */
   bonus: { signature: string; solscan: string } | null;
   bonusPaused: boolean;
+  /**
+   * The bonus was held because this is the wallet's first paid receipt; it
+   * starts from the second. Optional because an older API does not send it.
+   */
+  bonusFirstClaim?: boolean;
 }
 
 /**

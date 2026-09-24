@@ -18,6 +18,7 @@ import {
   ComputeBudgetProgram,
   Connection,
   Keypair,
+  LAMPORTS_PER_SOL,
   PublicKey,
   TransactionMessage,
   VersionedTransaction,
@@ -74,6 +75,77 @@ export interface PayoutBudget {
   reserve(usd: number): Promise<boolean>;
   release(usd: number): Promise<void>;
 }
+
+// ---------------------------------------------------------------------------
+// Account rent — counted against the daily cap
+// ---------------------------------------------------------------------------
+
+/** Wrapped SOL; Jupiter prices it as SOL. */
+const SOL_MINT = 'So11111111111111111111111111111111111111112';
+
+/**
+ * Used only when SOL cannot be priced. Deliberately high: it sizes a safety
+ * budget, so overstating it pauses payouts early rather than letting rent run
+ * past the cap unseen.
+ */
+const SOL_USD_FALLBACK = 500;
+
+/** A plain SPL token account, for when the treasury's own cannot be read. */
+const FALLBACK_ACCOUNT_BYTES = 165;
+
+const rentLamportsByBytes = new Map<number, number>();
+
+/**
+ * USD cost of opening the recipient's token account for `mint`, or 0 when it
+ * already exists.
+ *
+ * The treasury pays that rent and never gets it back, and on a small receipt
+ * it is more than the reward. So it counts against the daily cap: a cap that
+ * measured only the cashback would miss the larger cost.
+ *
+ * An account's size depends on the extensions its mint requires, and every
+ * associated token account for one mint is the same size — so the treasury's
+ * own account for the mint gives the exact size on any cluster.
+ */
+export async function accountOpeningCostUsd(args: {
+  connection: Connection;
+  treasury: PublicKey;
+  recipient: PublicKey;
+  mint: PublicKey;
+  programId: PublicKey;
+  fetchPrices?: typeof fetchXStockPrices;
+}): Promise<number> {
+  const { connection, treasury, recipient, mint, programId } = args;
+  const ata = (owner: PublicKey) =>
+    getAssociatedTokenAddressSync(mint, owner, false, programId, ASSOCIATED_TOKEN_PROGRAM_ID);
+
+  const [destination, source] = await connection.getMultipleAccountsInfo(
+    [ata(recipient), ata(treasury)],
+    'confirmed',
+  );
+  if (destination) return 0;
+
+  const bytes = source?.data.length ?? FALLBACK_ACCOUNT_BYTES;
+  let lamports = rentLamportsByBytes.get(bytes);
+  if (lamports == null) {
+    lamports = await connection.getMinimumBalanceForRentExemption(bytes);
+    rentLamportsByBytes.set(bytes, lamports);
+  }
+
+  let solUsd: number | null = null;
+  try {
+    const prices = await (args.fetchPrices ?? fetchXStockPrices)([SOL_MINT]);
+    solUsd = prices[SOL_MINT]?.usd ?? null;
+  } catch {
+    // Priced conservatively below: a price outage must not stop payouts.
+  }
+  if (solUsd == null || !Number.isFinite(solUsd) || solUsd <= 0) solUsd = SOL_USD_FALLBACK;
+
+  return (lamports / LAMPORTS_PER_SOL) * solUsd;
+}
+
+/** Rent for a new account of `mint` owned by `recipient`; 0 when it exists. */
+export type OpeningCost = (recipient: PublicKey, mint: PublicKey) => Promise<number>;
 
 // ---------------------------------------------------------------------------
 // Pure amount math — no network, no mocks needed to test.
@@ -153,17 +225,37 @@ export interface XStockRewardDeps {
   submit: typeof submitToken2022Transfer;
   /** Optional daily cap. Absent means uncapped (tests, scripts). */
   budget: PayoutBudget | null;
+  /** New-account rent, reserved against the cap alongside the reward. */
+  openingCostUsd: OpeningCost;
 }
 
 function xstockDeps(overrides?: Partial<XStockRewardDeps>): XStockRewardDeps {
+  const offline = Boolean(overrides?.submit);
+  const connection = overrides?.connection ?? (offline ? (null as never) : getConnection());
+  const treasury = overrides?.treasury ?? (offline ? (null as never) : getTreasuryKeypair());
+  const fetchPrices = overrides?.fetchPrices ?? fetchXStockPrices;
   return {
     store: overrides?.store ?? defaultReceiptStore,
-    connection: overrides?.connection ?? (overrides?.submit ? (null as never) : getConnection()),
-    treasury: overrides?.treasury ?? (overrides?.submit ? (null as never) : getTreasuryKeypair()),
-    fetchPrices: overrides?.fetchPrices ?? fetchXStockPrices,
+    connection,
+    treasury,
+    fetchPrices,
     fetchScaledState: overrides?.fetchScaledState ?? fetchScaledUiAmountState,
     submit: overrides?.submit ?? submitToken2022Transfer,
     budget: overrides?.budget ?? null,
+    // Offline (tests): no chain to ask, so no rent unless a test injects it.
+    openingCostUsd:
+      overrides?.openingCostUsd ??
+      (offline
+        ? async () => 0
+        : (recipient, mint) =>
+            accountOpeningCostUsd({
+              connection,
+              treasury: treasury.publicKey,
+              recipient,
+              mint,
+              programId: TOKEN_2022_PROGRAM_ID,
+              fetchPrices,
+            })),
   };
 }
 
@@ -222,13 +314,17 @@ export async function sendXStockReward(
     });
 
     // Circuit breaker, after the amount is known and before anything is sent.
+    // It counts the rent for a new token account as well as the reward, since
+    // on a small receipt the rent is the larger cost.
     if (deps.budget) {
-      if (!(await deps.budget.reserve(rewardUsd))) {
+      const openingUsd = await deps.openingCostUsd(new PublicKey(recipientWallet), mint);
+      const costUsd = rewardUsd + openingUsd;
+      if (!(await deps.budget.reserve(costUsd))) {
         throw new PayoutPausedError(
           "Stackd has reached today's payout limit. Your receipt is saved — claim it again tomorrow.",
         );
       }
-      reservedUsd = rewardUsd;
+      reservedUsd = costUsd;
     }
 
     await deps.store.recordXStockAmount(receiptId, tokenAmount);
@@ -413,18 +509,37 @@ export interface StackdBonusDeps {
   quotePrice: typeof getDbcQuotePrice;
   vaultBalance: typeof getVaultBalance;
   submit: typeof submitLegacyTransfer;
+  /** Optional daily cap, shared with the xStock leg. Absent means uncapped. */
+  budget: PayoutBudget | null;
+  /** New-account rent, reserved against the cap before sending. */
+  openingCostUsd: OpeningCost;
 }
 
 function bonusDeps(overrides?: Partial<StackdBonusDeps>): StackdBonusDeps {
   const offline = Boolean(overrides?.submit);
+  const connection = overrides?.connection ?? (offline ? (null as never) : getConnection());
+  const treasury = overrides?.treasury ?? (offline ? (null as never) : getTreasuryKeypair());
   return {
     store: overrides?.store ?? defaultReceiptStore,
-    connection: overrides?.connection ?? (offline ? (null as never) : getConnection()),
-    treasury: overrides?.treasury ?? (offline ? (null as never) : getTreasuryKeypair()),
+    connection,
+    treasury,
     config: overrides?.config !== undefined ? overrides.config : getStackdConfig(),
     quotePrice: overrides?.quotePrice ?? getDbcQuotePrice,
     vaultBalance: overrides?.vaultBalance ?? getVaultBalance,
     submit: overrides?.submit ?? submitLegacyTransfer,
+    budget: overrides?.budget ?? null,
+    openingCostUsd:
+      overrides?.openingCostUsd ??
+      (offline
+        ? async () => 0
+        : (recipient, mint) =>
+            accountOpeningCostUsd({
+              connection,
+              treasury: treasury.publicKey,
+              recipient,
+              mint,
+              programId: TOKEN_PROGRAM_ID,
+            })),
   };
 }
 
@@ -457,6 +572,9 @@ export async function sendStackdBonus(
     const current = await deps.store.get(receiptId);
     return current?.bonusTxSignature ?? null;
   }
+
+  // Rent reserved by this call, so a failed send can give it back.
+  let reservedUsd = 0;
 
   try {
     // 2-4. Size the bonus. bonusRate is fractional, so no /100 here.
@@ -492,6 +610,22 @@ export async function sendStackdBonus(
       return null;
     }
 
+    // A new $STACKD account's rent counts against the daily cap, as on the
+    // xStock leg. When the cap cannot cover it, the bonus pauses like any
+    // other shortfall. (The bonus tokens themselves come from the vault,
+    // which has its own floor in minVaultBalance.)
+    if (deps.budget) {
+      const openingUsd = await deps.openingCostUsd(new PublicKey(recipientWallet), deps.config.mint);
+      if (openingUsd > 0) {
+        if (!(await deps.budget.reserve(openingUsd))) {
+          console.warn("STACKD bonus paused: today's payout budget cannot cover a new $STACKD account");
+          await deps.store.releaseLeg(receiptId, 'bonus');
+          return null;
+        }
+        reservedUsd = openingUsd;
+      }
+    }
+
     const signature = await deps.submit({
       connection: deps.connection,
       treasury: deps.treasury,
@@ -504,8 +638,10 @@ export async function sendStackdBonus(
     await deps.store.recordPayout(receiptId, 'bonus', signature);
     return signature;
   } catch (error) {
-    // Sent but unconfirmed: keep the claim so a retry cannot pay the bonus twice.
+    // Sent but unconfirmed: keep the claim and the reserved rent, so a retry
+    // can neither pay the bonus twice nor overspend.
     if (!(error instanceof PayoutUnconfirmedError)) {
+      if (reservedUsd > 0 && deps.budget) await deps.budget.release(reservedUsd);
       await deps.store.releaseLeg(receiptId, 'bonus');
     }
     // The bonus is best-effort: never let it fail the xStock payout.

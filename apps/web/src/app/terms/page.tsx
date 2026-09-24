@@ -14,7 +14,7 @@ import { LegalSection, PageShell } from '@/components/layout/PageShell';
  * rather than guessed at.
  */
 
-const UPDATED = '2026-09-22';
+const UPDATED = '2026-09-24';
 const CONTACT = 'https://github.com/noobshole/stackd/issues';
 
 export const metadata: Metadata = {
@@ -112,8 +112,9 @@ export default function TermsPage() {
         <p>
           Some payouts include a bonus in $STACKD, a token launched on Meteora&apos;s Dynamic
           Bonding Curve with a fixed supply of one billion and no mint authority, meaning no more
-          can ever be created. The bonus is optional and often paused — the reward that matters is
-          the tokenized share, and a paused bonus is normal, not a failure.
+          can ever be created. It starts from your second paid receipt, not your first. The bonus
+          is optional and often paused — the reward that matters is the tokenized share, and a
+          paused bonus is normal, not a failure.
         </p>
         <p>
           $STACKD is not a share, carries no claim on Stackd or on any company, and we make no

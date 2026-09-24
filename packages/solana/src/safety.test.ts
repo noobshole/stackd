@@ -107,6 +107,46 @@ describe('test_duplicate_receipts', () => {
 
 // ---------------------------------------------------------------------------
 
+// The $STACKD bonus is held on a wallet's first paid receipt: its token-account
+// rent would cost more than the reward on a small one.
+describe('test_bonus_first_claim', () => {
+  it('treats a wallet whose only payout is this receipt as a first claim', async () => {
+    const store = new InMemoryReceiptStore();
+    await store.create(receipt('r1', ALICE, { fingerprint: 'fp-A' }));
+    await store.recordPayout('r1', 'xstock', 'sig-1');
+    // The xStock leg has already landed when the bonus decision is made.
+    assert.equal(await store.hasPriorPayout(ALICE, 'r1'), false);
+  });
+
+  it('pays from the second paid receipt', async () => {
+    const store = new InMemoryReceiptStore();
+    await store.create(receipt('r1', ALICE, { fingerprint: 'fp-A' }));
+    await store.create(receipt('r2', ALICE, { fingerprint: 'fp-B' }));
+    await store.recordPayout('r1', 'xstock', 'sig-1');
+    await store.recordPayout('r2', 'xstock', 'sig-2');
+    assert.equal(await store.hasPriorPayout(ALICE, 'r2'), true);
+  });
+
+  it('does not count a receipt that was verified but never paid', async () => {
+    const store = new InMemoryReceiptStore();
+    await store.create(receipt('r1', ALICE, { fingerprint: 'fp-A' }));
+    await store.create(receipt('r2', ALICE, { fingerprint: 'fp-B' }));
+    await store.recordPayout('r2', 'xstock', 'sig-2');
+    assert.equal(await store.hasPriorPayout(ALICE, 'r2'), false);
+  });
+
+  it("does not count another wallet's payouts", async () => {
+    const store = new InMemoryReceiptStore();
+    await store.create(receipt('r1', MALLORY, { fingerprint: 'fp-A' }));
+    await store.create(receipt('r2', ALICE, { fingerprint: 'fp-B' }));
+    await store.recordPayout('r1', 'xstock', 'sig-1');
+    await store.recordPayout('r2', 'xstock', 'sig-2');
+    assert.equal(await store.hasPriorPayout(ALICE, 'r2'), false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+
 function fakeBudget(capUsd: number) {
   let used = 0;
   const log: string[] = [];
@@ -199,6 +239,55 @@ describe('test_payout_budget', () => {
 
     assert.equal(b.used(), 4);
     assert.deepEqual(b.log, ['reserved 4']);
+  });
+
+  // On a small receipt the rent for a new token account is the larger cost, so
+  // a cap that counted only the reward would miss most of the spend.
+  it("counts a new token account's rent against the cap", async () => {
+    const store = new InMemoryReceiptStore();
+    await store.create(receipt('r1', ALICE, {}));
+    const b = fakeBudget(10);
+
+    await sendXStockReward(params('r1'), {
+      ...xstockDeps(store, async () => 'sig-new', b.budget),
+      openingCostUsd: async () => 0.4,
+    });
+
+    assert.deepEqual(b.log, ['reserved 4.4'], 'the $4 reward plus $0.40 of rent');
+  });
+
+  it("pauses when the reward fits but the new account's rent does not", async () => {
+    const store = new InMemoryReceiptStore();
+    await store.create(receipt('r1', ALICE, {}));
+    let sent = 0;
+    const { budget } = fakeBudget(4.2); // $4 fits; $4.40 with rent does not
+
+    await assert.rejects(
+      sendXStockReward(params('r1'), {
+        ...xstockDeps(store, async () => `sig-${++sent}`, budget),
+        openingCostUsd: async () => 0.4,
+      }),
+      PayoutPausedError,
+    );
+    assert.equal(sent, 0, 'nothing may be sent when the rent would break the cap');
+  });
+
+  it('gives the rent back as well when the transfer fails', async () => {
+    const store = new InMemoryReceiptStore();
+    await store.create(receipt('r1', ALICE, {}));
+    const b = fakeBudget(10);
+
+    await assert.rejects(
+      sendXStockReward(params('r1'), {
+        ...xstockDeps(store, async () => {
+          throw new Error('rpc down');
+        }, b.budget),
+        openingCostUsd: async () => 0.4,
+      }),
+      /rpc down/,
+    );
+    assert.equal(b.used(), 0);
+    assert.deepEqual(b.log, ['reserved 4.4', 'released 4.4']);
   });
 });
 
