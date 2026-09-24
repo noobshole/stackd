@@ -1,11 +1,10 @@
 /**
- * TASK 1 + 2 — $STACKD genesis and DBC pool creation.
+ * $STACKD genesis and DBC pool creation.
  *
  * These are one step, not two. The DBC program initialises the base mint and
  * mints the entire supply into its own vault when the pool is created, so there
  * is no separate genesis mint to run first. See the header of
- * packages/solana/src/dbc.ts for why a three-way pre-split is not
- * expressible here and what replaces it.
+ * packages/solana/src/dbc.ts for why supply cannot be pre-split at genesis.
  *
  * Supply, as configured:
  *   leftover  15%  -> leftoverReceiver (team wallet), claimable AFTER migration
@@ -13,8 +12,8 @@
  *   curve     65%  -> sold on the bonding curve
  *
  * Mint authority: TokenAuthorityOption.Immutable. No mint instruction exists
- * after this runs, from any code path, ever — the no-minting requirement
- * expressed as config rather than as a burn step someone could forget.
+ * after this runs, from any code path, ever — a fixed supply expressed as
+ * config rather than as a burn step someone could forget.
  *
  *   npm run dbc:launch              # dry run, prints everything
  *   npm run dbc:launch -- --execute # actually sends

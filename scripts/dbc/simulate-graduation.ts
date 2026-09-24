@@ -1,11 +1,11 @@
 /**
- * TASK 5 — devnet simulation: buy until the curve crosses its threshold and
- * confirm migration actually fires.
+ * Devnet simulation: buy until the curve crosses its threshold and confirm
+ * migration actually fires.
  *
- * This is the piece most likely to hide a subtle config
- * error: a curve that never graduates fails silently — it just
- * keeps accepting buys. Nothing else in the build surfaces that. (It did catch
- * one: the first devnet pool was built at 20,000,000 USDC instead of 20.)
+ * This is where a subtle config error hides: a curve that never graduates
+ * fails silently — it just keeps accepting buys, and nothing else surfaces
+ * that. (It did catch one: the first devnet pool was built at 20,000,000 USDC
+ * instead of 20.)
  *
  * Devnet only. Refuses mainnet outright regardless of DBC_ALLOW_MAINNET: there
  * is no reason to spend 750 real USDC proving a config you can prove for free.

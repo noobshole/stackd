@@ -1,9 +1,9 @@
 /**
- * TASK 4 — claim creator trading fees into the Rewards Vault.
+ * Claim creator trading fees into the Rewards Vault.
  *
- * This is the vault's only automatic refill source, and with
- * no genesis allocation possible it is the ONLY way the bonus leg ever becomes
- * payable. Run it manually for now; cron it later.
+ * This is the vault's only automatic refill source, and with no genesis
+ * allocation possible it is the ONLY way the bonus leg ever becomes payable.
+ * Run it manually for now; cron it later.
  *
  * Fees accrue in USDC (collectFeeMode: QuoteToken), so this claims USDC to the
  * vault. Converting that USDC into $STACKD for the vault to pay out is a

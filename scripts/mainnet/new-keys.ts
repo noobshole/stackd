@@ -6,9 +6,8 @@
  *   npm run mainnet:keys -- --execute
  *
  * Unlike `dbc:keygen`, this never prints a secret. The secrets go straight into
- * apps/api/.env via writeEnvVars, and only the two public addresses are shown —
- * so this is safe to run in a shared terminal or an agent session, which is the
- * whole reason it exists (see BURNED_PUBKEYS for what happens otherwise).
+ * apps/api/.env via writeEnvVars, and only the two public addresses are shown,
+ * so it is safe to run wherever terminal output is logged or shared.
  *
  * Devnet keys are deliberately NOT reused. A keypair works on every cluster, so
  * reuse is possible, but a devnet secret has been through faucets, test scripts

@@ -1,7 +1,7 @@
 /**
  * Withdraw the 15% leftover bucket to the team wallet after migration.
  *
- * This is how the team/liquidity allocation actually arrives: DBC holds
+ * This is how the 15% team/liquidity allocation actually arrives: DBC holds
  * the leftover in the pool's base vault until the curve has migrated, then
  * releases it — once — to the leftoverReceiver fixed in the config at launch.
  *

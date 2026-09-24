@@ -1,15 +1,14 @@
 /**
  * Meteora Dynamic Bonding Curve — $STACKD pool config, pricing, and progress.
  *
- * Every SDK signature here was read from the Meteora docs MCP and verified
- * against the installed package (@meteora-ag/dynamic-bonding-curve-sdk 1.5.12),
- * not recalled. If you change a call, re-check it the same way.
+ * Every SDK signature here was checked against Meteora's documentation and the
+ * installed package (@meteora-ag/dynamic-bonding-curve-sdk 1.5.12). If you
+ * change a call, re-check it the same way.
  *
  * ⚠️ READ THIS BEFORE RUNNING GENESIS ON MAINNET
  *
- * An earlier design described minting $STACKD ourselves and then
- * transferring 60% / 25% / 15% into the curve, a Rewards Vault, and a team
- * wallet. That is not how DBC works, and the difference is permanent once run:
+ * DBC does not accept a token you minted and pre-split yourself, and the
+ * difference is permanent once run:
  *
  *   - `creator.createPool` takes a BRAND NEW base-mint keypair. The DBC program
  *     initialises the mint itself and mints `totalTokenSupply` into a
@@ -18,13 +17,13 @@
  *   - `leftover_receiver` is documented as "Receiver for leftover base tokens
  *     AFTER MIGRATION". Leftover is not claimable at genesis.
  *
- * So there is no genesis moment at which 25% can be dropped into a vault. The
- * Rewards Vault is funded by claiming creator trading fees (
- * see scripts/dbc/claim-fees.ts), or by an explicit creator buy off the curve.
+ * So there is no genesis moment at which a share of supply can be dropped into
+ * a rewards vault. The Rewards Vault is funded by claiming creator trading fees
+ * (scripts/dbc/claim-fees.ts), or by an explicit creator buy off the curve.
  *
- * The practical consequence for Leg 2: until the vault has been funded, every
- * sendStackdBonus() call returns null and the bonus pauses. Leg 1 is unaffected,
- * which is exactly the safety property the two-leg design exists for.
+ * The practical consequence for the bonus leg: until the vault has been funded,
+ * every sendStackdBonus() call returns null and the bonus pauses. The xStock
+ * leg is unaffected — the core reward never depends on $STACKD.
  */
 
 import { Connection, PublicKey } from '@solana/web3.js';
@@ -115,14 +114,14 @@ export const PERCENTAGE_SUPPLY_ON_MIGRATION = 20;
  */
 export const CREATOR_TRADING_FEE_PERCENTAGE = 50;
 
-/** Fixed trading fee in bps. No time-decay scheduler. */
+/** Fixed trading fee in bps, with no time-decay scheduler. */
 export const TRADING_FEE_BPS = 100;
 
 /**
  * Curve config for $STACKD.
  *
  * `buildCurve` produces a single-segment curve from a migration target, which
- * is the "gentle/linear" shape we want — it rewards sustained demand
+ * is a gentle, linear shape — it rewards sustained demand
  * rather than whoever buys first.
  */
 export function buildStackdCurveConfig(cluster: 'devnet' | 'mainnet' = 'devnet') {
@@ -141,7 +140,7 @@ export function buildStackdCurveConfig(cluster: 'devnet' | 'mainnet' = 'devnet')
     fee: {
       baseFeeParams: {
         // Linear scheduler with identical start and end fees == a fixed fee.
-        // No anti-bot decay: the only way onto this
+        // Deliberately no anti-bot decay: the only way onto this
         // curve is meant to be real spending, so there is no sniping to defend.
         baseFeeMode: BaseFeeMode.FeeSchedulerLinear,
         feeSchedulerParam: {
