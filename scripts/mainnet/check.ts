@@ -34,6 +34,26 @@ const SQUADS_PROGRAMS = new Set([
   'SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf', // v4
   'SMPLecH534NA9acpos4G6x7uf3LWbCAwZQE9e8ZekMu', // v3
 ]);
+
+/**
+ * A Squads multisig ACCOUNT holds the multisig's config and can never sign, so
+ * anything paid to it is stuck for good. Its Vault, a PDA derived from it, is
+ * what should receive funds. Both look like ordinary addresses, so ask the
+ * chain who owns it.
+ */
+async function assertNotSquadsAccount(conn: Connection | undefined, address: PublicKey): Promise<void> {
+  const info = conn ? await conn.getAccountInfo(address) : null;
+  if (info && SQUADS_PROGRAMS.has(info.owner.toBase58())) {
+    throw new Error(
+      `${address.toBase58()} is a Squads multisig ACCOUNT. Use its Vault address (Squads → Vault → copy address)`,
+    );
+  }
+}
+
+/** Keypair wallets sit on the ed25519 curve; PDAs, such as a Squads vault, never do. */
+function addressKind(address: PublicKey): string {
+  return PublicKey.isOnCurve(address.toBytes()) ? 'a regular wallet' : 'a PDA, e.g. a Squads vault';
+}
 /** Rent for a recipient's Token-2022 xStock account plus its $STACKD account, plus fees. */
 const SOL_PER_NEW_WALLET = 0.0045;
 /** A typical payout, for turning stock into "about N receipts". */
@@ -190,17 +210,21 @@ async function main(): Promise<void> {
     if (mine.includes(team.toBase58())) {
       report('warn', 'team address is the payer or treasury: the 15% should sit in a wallet the app never signs with');
     }
-    if (ctx.mainnet) {
-      const info = await ctx.mainnet.getAccountInfo(team);
-      if (info && SQUADS_PROGRAMS.has(info.owner.toBase58())) {
-        throw new Error(
-          `${team.toBase58()} is a Squads multisig ACCOUNT. Use its Vault address (Squads → Vault → copy address)`,
-        );
-      }
-    }
-    report('ok', `team ${team.toBase58()} (receives 15% after graduation)`);
+    await assertNotSquadsAccount(ctx.mainnet, team);
+    report('ok', `team ${team.toBase58()} (${addressKind(team)}; receives 15% after graduation)`);
   });
-  report('info', `fee claimer: ${env('DBC_FEE_CLAIMER_ADDRESS') || 'the payer (default)'}`);
+  // As permanent as the team address — fixed in the DBC config at genesis.
+  await check('Fee claimer', async () => {
+    const raw = env('DBC_FEE_CLAIMER_ADDRESS');
+    if (!raw) {
+      report('info', 'fee claimer: the payer (default), a hot key, fixed at launch');
+      return;
+    }
+    const claimer = new PublicKey(raw);
+    if (BURNED_PUBKEYS.has(claimer.toBase58())) throw new Error(`fee claimer ${claimer.toBase58()} is a burned key`);
+    await assertNotSquadsAccount(ctx.mainnet, claimer);
+    report('ok', `fee claimer ${claimer.toBase58()} (${addressKind(claimer)}; claims the partner half of trading fees)`);
+  });
 
   heading('Funding (mainnet)');
   await check('Balances', async () => {
