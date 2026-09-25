@@ -21,6 +21,7 @@ apps/api/DEPLOY.md
 apps/api/db/README.md
 .claude/
 scripts/dev-web.mjs
+brag-output*/
 
 # logs
 npm-debug.log*
