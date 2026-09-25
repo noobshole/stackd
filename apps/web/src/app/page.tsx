@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { BRANDS, ISSUERS, MAX_PCT_BACK } from '@stackd/solana';
+import { BRANDS, ISSUERS, MAX_PCT_BACK, getCluster } from '@stackd/solana';
 import { Logo } from '@/components/ui/Logo';
 import { FooterLinks, ISSUER_DISCLAIMER } from '@/components/layout/SiteFooter';
 import { BrandMark } from '@/components/ui/primitives';
@@ -68,7 +68,7 @@ export default function LandingPage() {
               </div>
 
               <p className="mt-5 text-xs text-ink-subtle">
-                Non-custodial · Solana mainnet · No account to create
+                Non-custodial · Solana {getCluster()} · No account to create
               </p>
             </div>
 

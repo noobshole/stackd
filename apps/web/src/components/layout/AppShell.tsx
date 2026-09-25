@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { getCluster } from '@stackd/solana';
 import { Logo } from '@/components/ui/Logo';
 import { FooterLinks, ISSUER_DISCLAIMER } from '@/components/layout/SiteFooter';
 import { WalletButton } from '@/components/wallet/WalletButton';
@@ -168,15 +169,16 @@ function SidebarContent({ pathname, onClose }: { pathname: string; onClose?: () 
 
 /** Quiet confirmation of which chain the numbers come from. */
 function NetworkChip() {
+  const cluster = getCluster();
   return (
     <span
       className="hidden items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-1.5
                  text-2xs font-medium text-ink-muted sm:inline-flex"
-      title="Balances are read from Solana mainnet over Helius"
+      title={`Balances are read from Solana ${cluster} over Helius`}
     >
       {/* Indigo, not green — in this palette green exclusively means "the number went up". */}
       <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-hidden />
-      Mainnet
+      {cluster === 'devnet' ? 'Devnet' : 'Mainnet'}
     </span>
   );
 }
