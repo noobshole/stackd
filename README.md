@@ -9,7 +9,9 @@
 
 **Receipt cashback, paid in tokenized equity on Solana.**
 
-[Live app](https://stackd-web-eosin.vercel.app) · [Brand kit](https://stackd-web-eosin.vercel.app/brand) · [Terms](https://stackd-web-eosin.vercel.app/terms) · [Privacy](https://stackd-web-eosin.vercel.app/privacy)
+[Live app](https://usestackd.vercel.app) · [Brand kit](https://usestackd.vercel.app/brand) · [Terms](https://usestackd.vercel.app/terms) · [Privacy](https://usestackd.vercel.app/privacy)
+
+[![Stackd on X](https://img.shields.io/badge/X-17294F?logo=x&logoColor=white)](https://x.com/stackd_)
 
 </div>
 
