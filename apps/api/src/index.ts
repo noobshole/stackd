@@ -72,6 +72,33 @@ app.get('/health', (_req, res) => {
   });
 });
 
+/**
+ * Readiness: a real round trip to Postgres. The scheduled uptime check calls
+ * this, which also keeps a free-tier database from being paused for
+ * inactivity. /health stays a liveness check, so a database outage can never
+ * block a deploy. The result is cached for a minute, so hammering this route
+ * costs one query a minute at most.
+ */
+let dbCheck = { at: 0, ok: false };
+app.get('/health/ready', async (_req, res) => {
+  if (!hasDatabase()) {
+    const ok = cluster !== 'mainnet';
+    res.status(ok ? 200 : 503).json({ ok, database: 'none' });
+    return;
+  }
+  if (Date.now() - dbCheck.at > 60_000) {
+    try {
+      await getPool().query('select 1 from stackd.receipts limit 1');
+      dbCheck = { at: Date.now(), ok: true };
+    } catch {
+      dbCheck = { at: Date.now(), ok: false };
+    }
+  }
+  res
+    .status(dbCheck.ok ? 200 : 503)
+    .json({ ok: dbCheck.ok, database: dbCheck.ok ? 'ok' : 'unreachable' });
+});
+
 app.use(verifyReceiptRouter);
 app.use(confirmReceiptRouter);
 app.use(healthTreasuryRouter);

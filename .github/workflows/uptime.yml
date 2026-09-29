@@ -1,0 +1,31 @@
+name: Uptime
+
+# Every six hours: the API answers and its database responds, and both web
+# domains serve. A failed run emails the repository owner. The database check
+# also counts as activity, so a free-tier database is never paused.
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: API and database
+        run: >
+          curl --fail --silent --show-error --retry 3 --retry-delay 20 --max-time 30
+          https://stackdapi-production.up.railway.app/health/ready
+
+      - name: Web app and token metadata
+        run: |
+          for url in \
+            https://usestackd.vercel.app \
+            https://stackd-web-eosin.vercel.app \
+            https://stackd-web-eosin.vercel.app/token.json; do
+            curl --fail --silent --show-error --retry 3 --retry-delay 20 --max-time 30 -o /dev/null "$url"
+            echo "ok  $url"
+          done
