@@ -86,7 +86,7 @@ flowchart LR
 
 | Path | Description |
 | --- | --- |
-| `apps/web` | Next.js 14 frontend (App Router) |
+| `apps/web` | Next.js 15 frontend (App Router) |
 | `apps/api` | Express API for receipt verification and payouts |
 | `apps/api/db` | PostgreSQL schema migrations |
 | `packages/solana` | Shared Solana logic: brands, Token-2022, pricing, rewards, DBC |
@@ -99,7 +99,7 @@ compiled by Next.js through `transpilePackages`.
 
 | Layer | Technology |
 | --- | --- |
-| Frontend | Next.js 14, React 18, Tailwind CSS, Solana Wallet Adapter |
+| Frontend | Next.js 15, React 19, Tailwind CSS, Solana Wallet Adapter |
 | Backend | Node.js, Express |
 | AI | Claude, via the Anthropic API or OpenRouter |
 | Blockchain | Solana, Token-2022, Meteora Dynamic Bonding Curve |

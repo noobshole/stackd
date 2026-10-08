@@ -27,18 +27,18 @@
   "engines": {
     "node": "22.x"
   },
-  "//react": "Next 14 is a React 18 framework. @solana/wallet-adapter-react depends on @solana-mobile/wallet-adapter-mobile, which drags in react-native and its strict react@19 peer. npm honours that peer over `overrides` and hoists react@19 to the root, where react-dom@18 then reads ReactCurrentDispatcher off React 19 internals that no longer expose it — the build dies before rendering a page. Declaring react/react-dom here forces 18.3.1 into the hoisted root position; react-native's react@19 nests under itself and never reaches the web bundle.",
+  "//react": "@solana/wallet-adapter-react depends on @solana-mobile/wallet-adapter-mobile, which drags in react-native and its own exact react peer. npm can hoist that copy to the root, and a react and react-dom of different versions break the build before a page renders. Declaring react and react-dom here, with matching overrides, keeps exactly one hoisted copy of each at the same version.",
   "dependencies": {
-    "react": "18.3.1",
-    "react-dom": "18.3.1"
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
   },
   "//devDependencies": "npm hoists everything except `next` (its platform-specific @next/swc optional deps keep it nested in apps/web). eslint-config-next gets hoisted to the root and then cannot resolve next/dist/compiled/babel/eslint-parser, so `next lint` dies. Declaring next here too puts one copy at the root where both resolve.",
   "devDependencies": {
-    "next": "14.2.35",
+    "next": "15.5.27",
     "tsx": "^4.19.2"
   },
   "overrides": {
-    "react": "18.3.1",
-    "react-dom": "18.3.1"
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
   }
 }
