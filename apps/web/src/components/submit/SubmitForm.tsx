@@ -17,18 +17,33 @@ import { formatMoney, formatTokenAmount, formatUsd } from '@/lib/format';
 const MAX_BYTES = 10 * 1024 * 1024;
 const ACCEPTED = ['image/jpeg', 'image/png', 'application/pdf'];
 
+/**
+ * A saved receipt email. Browsers label .eml files message/rfc822 when the OS
+ * knows the type and leave it empty when it doesn't, so the name decides too.
+ */
+function isEmailFile(file: File): boolean {
+  return file.type === 'message/rfc822' || /\.eml$/i.test(file.name);
+}
+
 type Stage = 'idle' | 'verifying' | 'result';
 
 /**
  * The phases the backend actually moves through, surfaced while the request is
- * in flight. Claude's vision call is the long pole and reports no progress of
- * its own, so these advance on a timer rather than on real events.
+ * in flight. Claude's call is the long pole and reports no progress of its
+ * own, so these advance on a timer rather than on real events.
  */
-const PHASES = [
+const PHOTO_PHASES = [
   'Uploading receipt',
   'Reading the image',
   'Extracting merchant and total',
   'Checking for tampering',
+  'Matching against Stackd brands',
+];
+
+const EMAIL_PHASES = [
+  'Uploading email',
+  "Checking the store's signature",
+  'Reading the total',
   'Matching against Stackd brands',
 ];
 
@@ -48,6 +63,8 @@ export function SubmitForm() {
   const [claiming, setClaiming] = useState(false);
   const [claimError, setClaimError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const isEmail = file ? isEmailFile(file) : false;
+  const phases = isEmail ? EMAIL_PHASES : PHOTO_PHASES;
 
   // Object URLs leak until revoked.
   useEffect(() => {
@@ -65,10 +82,10 @@ export function SubmitForm() {
     if (stage !== 'verifying') return;
     setPhase(0);
     const id = window.setInterval(() => {
-      setPhase((p) => Math.min(p + 1, PHASES.length - 1));
+      setPhase((p) => Math.min(p + 1, phases.length - 1));
     }, 1700);
     return () => window.clearInterval(id);
-  }, [stage]);
+  }, [stage, phases.length]);
 
   if (!publicKey) {
     return (
@@ -89,8 +106,8 @@ export function SubmitForm() {
     setStage('idle');
     if (!next) return;
 
-    if (!ACCEPTED.includes(next.type)) {
-      setFileError('Upload a JPG, PNG or PDF receipt.');
+    if (!ACCEPTED.includes(next.type) && !isEmailFile(next)) {
+      setFileError('Upload a JPG, PNG or PDF receipt, or the receipt email as an .eml file.');
       return;
     }
     if (next.size > MAX_BYTES) {
@@ -154,7 +171,7 @@ export function SubmitForm() {
     <>
       <SectionHeader
         title="Submit a receipt"
-        description="Claude reads the receipt, checks it's genuine, and works out what you've earned."
+        description="We check the receipt is genuine, read the total, and work out what you've earned."
       />
 
       <div className="grid gap-4 lg:grid-cols-[1.15fr_1fr]">
@@ -163,8 +180,13 @@ export function SubmitForm() {
           <section className="card p-5">
             <h2 className="text-sm font-medium text-ink">Your receipt</h2>
             <p className="mt-1 text-xs leading-relaxed text-ink-muted">
-              Any receipt from a supported brand. The merchant and total are read from the image —
-              nothing to type in.
+              Any receipt from a supported brand. The merchant and total are read for you — nothing
+              to type in.
+            </p>
+            <p className="mt-1.5 text-xs leading-relaxed text-ink-muted">
+              <span className="font-medium text-ink">Got the receipt by email?</span> Upload the email
+              itself as an .eml file (Gmail: ⋮ → Download message). It carries the store&apos;s own
+              signature, so it&apos;s proved genuine and earns on the full total.
             </p>
 
             <div
@@ -187,9 +209,9 @@ export function SubmitForm() {
               {previewUrl ? (
                 <div className="flex items-center gap-4 p-4">
                   <div className="relative h-28 w-20 shrink-0 overflow-hidden rounded-lg border border-line">
-                    {file?.type === 'application/pdf' ? (
+                    {file?.type === 'application/pdf' || isEmail ? (
                       <div className="flex h-28 w-20 items-center justify-center bg-surface text-2xs text-ink-subtle">
-                        PDF
+                        {isEmail ? 'Email' : 'PDF'}
                       </div>
                     ) : (
                       /* Local object URL; next/image would only add indirection. */
@@ -251,7 +273,9 @@ export function SubmitForm() {
                     />
                   </svg>
                   <span className="text-sm text-ink">Drop a receipt or browse</span>
-                  <span className="text-xs text-ink-subtle">JPG, PNG or PDF · up to 10 MB</span>
+                  <span className="text-xs text-ink-subtle">
+                    JPG, PNG, PDF or receipt email (.eml) · up to 10 MB
+                  </span>
                 </button>
               )}
             </div>
@@ -259,7 +283,7 @@ export function SubmitForm() {
             <input
               ref={inputRef}
               type="file"
-              accept="image/jpeg,image/png,application/pdf"
+              accept="image/jpeg,image/png,application/pdf,message/rfc822,.eml"
               className="sr-only"
               onChange={(e) => acceptFile(e.target.files?.[0] ?? null)}
             />
@@ -287,14 +311,15 @@ export function SubmitForm() {
         {/* --- Result rail --- */}
         <aside className="lg:sticky lg:top-24 lg:self-start">
           <div className="card p-5">
-            {stage === 'verifying' && <Verifying phase={phase} />}
+            {stage === 'verifying' && <Verifying phases={phases} phase={phase} />}
 
             {stage !== 'verifying' && !result && (
               <>
                 <h2 className="text-sm font-medium text-ink">Ready when you are</h2>
                 <p className="mt-2 text-xs leading-relaxed text-ink-muted">
-                  Claude extracts the merchant, total and date, and flags anything that looks
-                  edited or generated.
+                  {isEmail
+                    ? "We check the store's signature on the email, then read the total, date and order number."
+                    : 'Claude extracts the merchant, total and date, and flags anything that looks edited or generated.'}
                 </p>
                 <button
                   type="button"
@@ -329,13 +354,13 @@ export function SubmitForm() {
   );
 }
 
-function Verifying({ phase }: { phase: number }) {
+function Verifying({ phases, phase }: { phases: string[]; phase: number }) {
   return (
     <div className="py-2">
       <h2 className="text-sm font-medium text-ink">Verifying</h2>
 
       <ul className="mt-4 space-y-2.5">
-        {PHASES.map((label, i) => {
+        {phases.map((label, i) => {
           const done = i < phase;
           const active = i === phase;
           return (
@@ -449,7 +474,9 @@ function Result({
         <div className="min-w-0">
           <h2 className="text-sm font-medium text-ink">{result.brand} receipt verified</h2>
           <p className="num text-xs text-ink-muted">
-            {result.confidence != null && `${Math.round(result.confidence * 100)}% confidence`}
+            {result.verifiedBy
+              ? `Signed by ${result.verifiedBy.domain}`
+              : result.confidence != null && `${Math.round(result.confidence * 100)}% confidence`}
           </p>
         </div>
       </div>

@@ -15,6 +15,8 @@ export interface VerifyResponse {
   eligibleUsd?: number;
   /** The online-order cap that applied, in USD. */
   digitalCapUsd?: number;
+  /** Present when the receipt was an email whose DKIM signature verified. */
+  verifiedBy?: { method: 'dkim'; domain: string };
   merchantName?: string;
   date?: string;
   currency?: string;

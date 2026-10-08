@@ -5,6 +5,11 @@ import { LegalSection, PageShell } from '@/components/layout/PageShell';
  * Every claim here is checked against the code, not aspirational:
  *   - the receipt image is sent to Claude and never persisted
  *     (apps/api/src/routes/verify-receipt.ts passes imageUrl: null)
+ *   - a receipt email is held in memory only: its DKIM signature is checked
+ *     (apps/api/src/lib/email-receipt.ts), then only its subject, the sender's
+ *     domain and its body text go to Claude, never its address headers; what
+ *     is kept is hashes of its signature and Message-ID (emailIdentityKeys)
+ *     plus the same extracted fields as a photo
  *   - a SHA-256 of the image and a fingerprint of its printed details are
  *     stored, which is what makes duplicates detectable without keeping photos
  *   - IP + wallet + timestamp rows live in stackd.submission_attempts and are
@@ -17,7 +22,7 @@ import { LegalSection, PageShell } from '@/components/layout/PageShell';
  * If any of that changes, this page has to change with it.
  */
 
-const UPDATED = '2026-09-24';
+const UPDATED = '2026-10-08';
 const CONTACT = 'https://github.com/noobshole/stackd/issues';
 
 export const metadata: Metadata = {
@@ -43,6 +48,15 @@ export default function PrivacyPage() {
             Claude to be read, and <strong className="font-medium text-ink">we do not store it</strong>.
           </li>
           <li>
+            <strong className="font-medium text-ink">Or the receipt email, if you upload one.</strong>{' '}
+            We check the store&apos;s signature on it, then send Claude only its subject and text,
+            not the addresses in its headers.{' '}
+            <strong className="font-medium text-ink">We do not store the email.</strong> Its text
+            can include your name or delivery address, which Claude sees while reading it. We keep
+            a one-way hash of the email&apos;s signature and message ID, so it cannot be claimed
+            twice.
+          </li>
+          <li>
             <strong className="font-medium text-ink">A fingerprint of the receipt.</strong> A
             one-way hash of the image, plus the merchant, date, total and transaction number. This
             is how the same receipt is refused a second time without keeping the photo. A hash
@@ -63,7 +77,8 @@ export default function PrivacyPage() {
         </ul>
         <p>
           We never ask for your name, email address, phone number, date of birth, payment details
-          or any government ID. There is no account to create and no password to store. We never
+          or any government ID. A receipt email you choose to upload may contain some of these; it
+          is handled as described above. There is no account to create and no password to store. We never
           ask for your seed phrase or private key.
         </p>
       </LegalSection>
@@ -86,7 +101,8 @@ export default function PrivacyPage() {
         <ul className="list-disc space-y-1.5 pl-5">
           <li>
             <strong className="font-medium text-ink">Anthropic (Claude API)</strong> receives the
-            receipt image and returns the extracted fields, either directly or through{' '}
+            receipt image, or a receipt email&apos;s subject and text, and returns the extracted
+            fields, either directly or through{' '}
             <strong className="font-medium text-ink">OpenRouter</strong>, which relays the request
             to Anthropic. Their terms govern what they do with it.
           </li>
@@ -101,6 +117,11 @@ export default function PrivacyPage() {
           <li>
             <strong className="font-medium text-ink">Vercel</strong> hosts the site and keeps
             standard server logs.
+          </li>
+          <li>
+            To check a receipt email&apos;s signature we look up the store&apos;s public signing
+            key in <strong className="font-medium text-ink">DNS</strong>. The lookup names the
+            store, never you.
           </li>
           <li>
             <strong className="font-medium text-ink">Jupiter</strong> and the{' '}
@@ -131,8 +152,8 @@ export default function PrivacyPage() {
             automatically about a day after the submission.
           </li>
           <li>
-            <strong className="font-medium text-ink">Receipt images</strong> are never written to
-            our storage at all.
+            <strong className="font-medium text-ink">Receipt images and emails</strong> are never
+            written to our storage at all.
           </li>
         </ul>
       </LegalSection>

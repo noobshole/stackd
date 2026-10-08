@@ -5,16 +5,23 @@
  * tokens — the frontend shows this estimate, the user confirms, and the
  * transfer happens on POST /confirm-receipt.
  *
+ * A receipt arrives one of two ways, and each is read by its own lane:
+ *   photo — a JPG, PNG or PDF. Claude judges whether it is genuine.
+ *   email — a saved receipt email (.eml). The brand's DKIM signature proves
+ *           it genuine (lib/email-receipt.ts); Claude only reads it.
+ *
  * Order matters, cheapest refusal first:
- *   1. exact re-upload (image hash)       — free, before Claude
- *      file provenance (AI / editor tags) — free, before Claude
+ *   1. exact re-upload (file hash)        — free, before Claude
+ *      photos: file provenance (AI / editor tags) — free, before Claude
  *   2. wallet / IP / global limits        — before Claude, which costs money
- *   3. Claude: authenticity, amounts that reconcile, confidence, total;
- *      stricter for digital receipts
+ *   3. read the receipt
+ *      photo: Claude — authenticity, amounts that reconcile, confidence,
+ *             total; stricter for digital receipts
+ *      email: the DKIM signature, then Claude reads the verified text
  *   4. date window                         — no shoebox of old receipts, none from the future
  *   5. currency -> USD, then the USD caps
- *   6. brand match
- *   7. fingerprint: the same receipt re-photographed, from any wallet
+ *   6. brand match (an email's brand is its signature's)
+ *   7. fingerprint: the same receipt re-photographed or re-sent, from any wallet
  *      stock: the treasury holds enough of the brand's xStock to pay it
  *   8. insert — the database's unique indexes are the final, race-safe check
  */
@@ -23,8 +30,10 @@ import { randomUUID } from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
 import { PublicKey } from '@solana/web3.js';
+import type { Brand } from '@stackd/solana';
 import { DuplicateReceiptError, defaultReceiptStore } from '@stackd/solana/server';
-import { ClaudeUnavailableError, extractReceipt } from '../lib/claude.js';
+import { ClaudeUnavailableError, extractEmailReceipt, extractReceipt } from '../lib/claude.js';
+import { emailIdentityKeys, isEmailUpload, verifyReceiptEmail } from '../lib/email-receipt.js';
 import { FxUnavailableError, UnsupportedCurrencyError, toUsd } from '../lib/fx.js';
 import { matchBrand } from '../lib/match-brand.js';
 import { checkPayoutStock } from '../lib/inventory.js';
@@ -34,6 +43,7 @@ import {
   checkReceiptDate,
   eligibleAmountUsd,
   normaliseReceiptNumber,
+  onlineOrderKey,
   positiveNumberEnv,
   receiptFingerprint,
   sha256Hex,
@@ -60,7 +70,7 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: MAX_BYTES, files: 1 },
   fileFilter: (_req, file, cb) => {
-    if (!ACCEPTED_TYPES.has(file.mimetype)) {
+    if (!ACCEPTED_TYPES.has(file.mimetype) && !isEmailUpload(file)) {
       cb(new UnsupportedTypeError(`Unsupported file type: ${file.mimetype}`));
       return;
     }
@@ -88,6 +98,8 @@ interface VerifyResponse {
    */
   eligibleUsd?: number;
   digitalCapUsd?: number;
+  /** Present when the receipt is an email whose DKIM signature verified. */
+  verifiedBy?: { method: 'dkim'; domain: string };
   /** What Claude actually read, so the UI can show its working. */
   merchantName?: string;
   date?: string;
@@ -136,6 +148,34 @@ function limitMessage(limit: LimitKind, retryAfterMs: number | null): string {
   }
 }
 
+/** A receipt as either lane read it, ready for the checks they share. */
+interface Reading {
+  documentType: 'paper_receipt_photo' | 'digital_receipt' | 'verified_email';
+  merchantName: string;
+  totalAmount: number;
+  currency: string;
+  /** The purchase date as read, YYYY-MM-DD. */
+  date: string;
+  time: string;
+  receiptNumber: string;
+  confidence: number;
+  /** Emails only: the date the brand signed it, which the date window uses. */
+  signedDate?: string;
+  /** Emails only: the brand the signature belongs to. */
+  brand?: Brand;
+  /** Emails only: identity keys of the email itself. */
+  identityKeys?: string[];
+  verifiedBy?: VerifyResponse['verifiedBy'];
+}
+
+/**
+ * What a lane hands back: a reading, or the response to send. `release` marks
+ * our failure rather than the receipt's, so the user's attempt is handed back.
+ */
+type LaneResult =
+  | { ok: true; reading: Reading }
+  | { ok: false; status: number; reason: string; release?: boolean; seen?: Partial<VerifyResponse> };
+
 export const verifyReceiptRouter = Router();
 
 verifyReceiptRouter.post(
@@ -143,7 +183,9 @@ verifyReceiptRouter.post(
   (req, res, next) => {
     upload.single('receipt')(req, res, (err: unknown) => {
       if (err instanceof UnsupportedTypeError) {
-        res.status(415).json(rejection('Upload a JPG, PNG or PDF receipt.'));
+        res
+          .status(415)
+          .json(rejection('Upload a JPG, PNG or PDF receipt, or the receipt email as an .eml file.'));
         return;
       }
       if (err instanceof multer.MulterError) {
@@ -187,11 +229,12 @@ async function handleVerify(req: Request, res: Response): Promise<void> {
     return;
   }
   if (!req.file) {
-    res.status(400).json(rejection('No receipt image was uploaded.'));
+    res.status(400).json(rejection('No receipt was uploaded.'));
     return;
   }
 
   const guards = getGuards();
+  const isEmail = isEmailUpload(req.file);
 
   // --- 1. Exact re-upload: refuse before spending a Claude call on it ------
   const imageSha256 = sha256Hex(req.file.buffer);
@@ -201,14 +244,17 @@ async function handleVerify(req: Request, res: Response): Promise<void> {
   }
 
   // AI-generation labels and desktop-editor stamps in the file itself. Free,
-  // so it runs before the quota and the Claude call.
-  const provenance = checkProvenance(req.file.buffer);
-  if (!provenance.ok) {
-    console.warn(
-      `[stackd-api] provenance refusal (${provenance.kind}: ${provenance.marker}) from ${walletAddress}`,
-    );
-    res.status(200).json(rejection(provenance.reason));
-    return;
+  // so it runs before the quota and the Claude call. Images and PDFs only:
+  // an email's own signature is a far stronger check.
+  if (!isEmail) {
+    const provenance = checkProvenance(req.file.buffer);
+    if (!provenance.ok) {
+      console.warn(
+        `[stackd-api] provenance refusal (${provenance.kind}: ${provenance.marker}) from ${walletAddress}`,
+      );
+      res.status(200).json(rejection(provenance.reason));
+      return;
+    }
   }
 
   // --- 2. Limits, before spending anything on the API ---------------------
@@ -224,100 +270,39 @@ async function handleVerify(req: Request, res: Response): Promise<void> {
     );
     return;
   }
+  const submissionsRemaining = await guards.walletRemaining(walletAddress);
 
-  // --- 3. Extraction ------------------------------------------------------
-  let extraction;
-  try {
-    extraction = await extractReceipt(req.file.buffer, req.file.mimetype);
-  } catch (error) {
-    // Our failure, not theirs — hand the quota slot back.
-    await guards.releaseAttempt(attempt.token);
+  // --- 3. Read the receipt ------------------------------------------------
+  const lane = isEmail
+    ? await readEmail(req.file.buffer, walletAddress)
+    : await readPhoto(req.file.buffer, req.file.mimetype, walletAddress);
 
-    if (error instanceof ClaudeUnavailableError) {
-      res.status(502).json(rejection(error.message));
-      return;
-    }
-    res.status(500).json(rejection('Something went wrong verifying that receipt.'));
+  if (!lane.ok) {
+    if (lane.release) await guards.releaseAttempt(attempt.token);
+    res.status(lane.status).json(
+      rejection(lane.reason, {
+        ...lane.seen,
+        submissionsRemaining: lane.release
+          ? await guards.walletRemaining(walletAddress)
+          : submissionsRemaining,
+      }),
+    );
     return;
   }
+  const reading = lane.reading;
 
   const seen = {
-    merchantName: extraction.merchant_name,
-    date: extraction.date,
-    currency: extraction.currency,
-    confidence: extraction.confidence,
-    submissionsRemaining: await guards.walletRemaining(walletAddress),
+    merchantName: reading.merchantName,
+    date: reading.date,
+    currency: reading.currency,
+    confidence: reading.confidence,
+    submissionsRemaining,
   };
 
-  if (extraction.document_type === 'other') {
-    res.status(200).json(rejection("That doesn't look like a receipt.", seen));
-    return;
-  }
-
-  // The signals are logged, never returned: telling a forger which detail gave
-  // them away is a free lesson for the next attempt.
-  const signals = extraction.fraud_signals.join('; ') || 'none listed';
-
-  if (!extraction.looks_authentic) {
-    console.warn(`[stackd-api] not authentic (${extraction.document_type}) from ${walletAddress}: ${signals}`);
-    res.status(200).json(rejection('This does not look like a genuine receipt.', seen));
-    return;
-  }
-
-  /**
-   * Amounts that contradict each other refuse the receipt on any document
-   * type, whatever the overall verdict. Editing the total is the cheapest
-   * forgery there is, and in testing Claude named exactly that mismatch
-   * ("line items 61,500 vs total 161,500") yet still leaned genuine overall.
-   * Worded for the honest case — a misread digit — not as an accusation.
-   */
-  if (!extraction.totals_reconcile) {
-    console.warn(`[stackd-api] totals do not reconcile from ${walletAddress}: ${signals}`);
-    res.status(200).json(
-      rejection(
-        "The amounts on this receipt don't add up. Try a sharper photo of the whole receipt.",
-        seen,
-      ),
-    );
-    return;
-  }
-
-  /**
-   * Online receipts are where the fakes are: a generator site or an image model
-   * makes one in minutes, and there is no paper to check it against. So on a
-   * digital receipt any sign of fabrication Claude reports is a refusal, even
-   * when its overall verdict leans genuine; paper photos keep that overall
-   * verdict. And a real online order always has an order number — without one
-   * there is nothing that stops the same order being claimed twice.
-   */
-  if (extraction.document_type === 'digital_receipt') {
-    if (extraction.fraud_signals.length > 0) {
-      console.warn(`[stackd-api] digital receipt with fraud signals from ${walletAddress}: ${signals}`);
-      res.status(200).json(rejection('This does not look like a genuine receipt.', seen));
-      return;
-    }
-    if (!normaliseReceiptNumber(extraction.receipt_number)) {
-      res.status(200).json(
-        rejection('Online receipts must show the order number. Include it in the screenshot.', seen),
-      );
-      return;
-    }
-  }
-
-  if (extraction.confidence < MIN_CONFIDENCE) {
-    res.status(200).json(
-      rejection("The receipt couldn't be read clearly enough. Try a sharper, flatter photo.", seen),
-    );
-    return;
-  }
-
-  if (!Number.isFinite(extraction.total_amount) || extraction.total_amount <= 0) {
-    res.status(200).json(rejection('No valid total could be read from this receipt.', seen));
-    return;
-  }
-
   // --- 4. Date window -----------------------------------------------------
-  const dated = checkReceiptDate(extraction.date, submittedAt);
+  // An email's signing date is part of what the brand signed, so it decides
+  // the window rather than the date read from the text.
+  const dated = checkReceiptDate(reading.signedDate ?? reading.date, submittedAt);
   if (!dated.ok) {
     res.status(200).json(rejection(dated.reason, seen));
     return;
@@ -325,7 +310,7 @@ async function handleVerify(req: Request, res: Response): Promise<void> {
 
   /**
    * --- 5. Currency -> USD ---------------------------------------------------
-   * `total_amount` is in whatever currency the receipt used; every check after
+   * `totalAmount` is in whatever currency the receipt used; every check after
    * this point, and the payout, works in dollars.
    *
    * This must run BEFORE the MAX_RECEIPT_USD cap. Skipping it is not caught
@@ -333,12 +318,12 @@ async function handleVerify(req: Request, res: Response): Promise<void> {
    * and pays $36 at a 4% brand instead of about $0.24.
    *
    * Conversion is only as good as the `currency` Claude reports. "$" alone is
-   * also CAD, AUD, SGD, HKD, MXN, TWD and others, so the extraction prompt
-   * tells Claude to decide from the store's country, not the symbol.
+   * also CAD, AUD, SGD, HKD, MXN, TWD and others, so the extraction prompts
+   * tell Claude to decide from the store's country, not the symbol.
    */
   let conversion;
   try {
-    conversion = await toUsd(extraction.total_amount, extraction.currency);
+    conversion = await toUsd(reading.totalAmount, reading.currency);
   } catch (error) {
     if (error instanceof UnsupportedCurrencyError) {
       res.status(200).json(rejection(error.message, seen));
@@ -381,10 +366,13 @@ async function handleVerify(req: Request, res: Response): Promise<void> {
   }
 
   // --- 6. Brand -----------------------------------------------------------
-  const match = matchBrand(extraction.merchant_name);
+  // An email's brand is the one whose key signed it, never the text inside.
+  const match = reading.brand
+    ? { brand: reading.brand, matchedOn: 'DKIM signature' }
+    : matchBrand(reading.merchantName);
   if (!match) {
     res.status(200).json(
-      rejection(`"${extraction.merchant_name}" isn't one of the brands Stackd supports yet.`, {
+      rejection(`"${reading.merchantName}" isn't one of the brands Stackd supports yet.`, {
         ...seen,
         ...fx,
       }),
@@ -392,28 +380,42 @@ async function handleVerify(req: Request, res: Response): Promise<void> {
     return;
   }
 
-  // --- 7. Fingerprint: same receipt, different photo, any wallet ----------
+  // --- 7. Fingerprint: same receipt, different photo or file, any wallet --
   // Keyed on the printed total, not the converted USD: the rate refreshes
   // daily, so a USD key would let the same receipt through again tomorrow.
   const identity = receiptFingerprint({
     brandSlug: match.brand.slug,
     date: dated.date,
-    totalAmount: extraction.total_amount,
+    totalAmount: reading.totalAmount,
     currency: conversion.currency,
-    receiptNumber: extraction.receipt_number,
-    time: extraction.time,
+    receiptNumber: reading.receiptNumber,
+    time: reading.time,
   });
-  if (!identity.ok) {
+  // A photo has to say which transaction it is. A verified email already
+  // does: its signature is unique to it.
+  if (!identity.ok && !reading.identityKeys?.length) {
     res.status(200).json(rejection(identity.reason, { ...seen, ...fx }));
     return;
   }
-  if (await defaultReceiptStore.findDuplicate({ fingerprints: identity.fingerprints })) {
+  // Online orders, by email or screenshot, also count once per order number.
+  const orderKey =
+    reading.documentType === 'paper_receipt_photo'
+      ? null
+      : onlineOrderKey(match.brand.slug, reading.receiptNumber);
+  const fingerprints = [
+    ...new Set([
+      ...(reading.identityKeys ?? []),
+      ...(orderKey ? [orderKey] : []),
+      ...(identity.ok ? identity.fingerprints : []),
+    ]),
+  ];
+  if (await defaultReceiptStore.findDuplicate({ fingerprints })) {
     res.status(409).json(rejection(DUPLICATE_REASON, { ...seen, ...fx }));
     return;
   }
 
   // Online orders earn on at most MAX_DIGITAL_RECEIPT_USD (see eligibleAmountUsd).
-  const { eligibleUsd, capped } = eligibleAmountUsd(amountUsd, extraction.document_type);
+  const { eligibleUsd, capped } = eligibleAmountUsd(amountUsd, reading.documentType);
   const cashbackUsd = Math.round(((eligibleUsd * match.brand.pctBack) / 100) * 1e6) / 1e6;
 
   // --- 7b. Stock: can the treasury actually pay this brand? ---------------
@@ -462,13 +464,15 @@ async function handleVerify(req: Request, res: Response): Promise<void> {
       fxRateDate: fx.fxRateDate,
       xstockAmount: null,
       imageUrl: null, // ROADMAP: store the image for disputes
-      claudeConfidence: extraction.confidence,
+      claudeConfidence: reading.confidence,
       imageSha256,
-      fingerprint: identity.fingerprint,
-      fingerprints: identity.fingerprints,
+      fingerprint: fingerprints[0],
+      fingerprints,
       receiptDate: dated.date,
-      receiptNumber: identity.receiptNumber,
-      receiptTime: identity.receiptTime,
+      receiptNumber: identity.ok
+        ? identity.receiptNumber
+        : normaliseReceiptNumber(reading.receiptNumber) || null,
+      receiptTime: identity.ok ? identity.receiptTime : null,
     });
   } catch (error) {
     if (error instanceof DuplicateReceiptError) {
@@ -487,9 +491,203 @@ async function handleVerify(req: Request, res: Response): Promise<void> {
     pctBack: match.brand.pctBack,
     cashbackUsd,
     ...(capped ? { eligibleUsd, digitalCapUsd: MAX_DIGITAL_RECEIPT_USD } : {}),
+    ...(reading.verifiedBy ? { verifiedBy: reading.verifiedBy } : {}),
     ...seen,
     ...fx,
   };
 
   res.status(200).json(response);
+}
+
+// ---------------------------------------------------------------------------
+// Photo lane: Claude judges the image
+// ---------------------------------------------------------------------------
+
+async function readPhoto(file: Buffer, mimeType: string, walletAddress: string): Promise<LaneResult> {
+  let extraction;
+  try {
+    extraction = await extractReceipt(file, mimeType);
+  } catch (error) {
+    // Our failure, not theirs — hand the quota slot back.
+    if (error instanceof ClaudeUnavailableError) {
+      return { ok: false, status: 502, reason: error.message, release: true };
+    }
+    console.error('[stackd-api] receipt extraction threw:', error);
+    return {
+      ok: false,
+      status: 500,
+      reason: 'Something went wrong verifying that receipt.',
+      release: true,
+    };
+  }
+
+  const seen = {
+    merchantName: extraction.merchant_name,
+    date: extraction.date,
+    currency: extraction.currency,
+    confidence: extraction.confidence,
+  };
+  const refuse = (reason: string): LaneResult => ({ ok: false, status: 200, reason, seen });
+
+  if (extraction.document_type === 'other') {
+    return refuse("That doesn't look like a receipt.");
+  }
+
+  // The signals are logged, never returned: telling a forger which detail gave
+  // them away is a free lesson for the next attempt.
+  const signals = extraction.fraud_signals.join('; ') || 'none listed';
+
+  if (!extraction.looks_authentic) {
+    console.warn(`[stackd-api] not authentic (${extraction.document_type}) from ${walletAddress}: ${signals}`);
+    return refuse('This does not look like a genuine receipt.');
+  }
+
+  /**
+   * Amounts that contradict each other refuse the receipt on any document
+   * type, whatever the overall verdict. Editing the total is the cheapest
+   * forgery there is, and in testing Claude named exactly that mismatch
+   * ("line items 61,500 vs total 161,500") yet still leaned genuine overall.
+   * Worded for the honest case — a misread digit — not as an accusation.
+   */
+  if (!extraction.totals_reconcile) {
+    console.warn(`[stackd-api] totals do not reconcile from ${walletAddress}: ${signals}`);
+    return refuse(
+      "The amounts on this receipt don't add up. Try a sharper photo of the whole receipt.",
+    );
+  }
+
+  /**
+   * Online receipts are where the fakes are: a generator site or an image model
+   * makes one in minutes, and there is no paper to check it against. So on a
+   * digital receipt any sign of fabrication Claude reports is a refusal, even
+   * when its overall verdict leans genuine; paper photos keep that overall
+   * verdict. And a real online order always has an order number — without one
+   * there is nothing that stops the same order being claimed twice.
+   */
+  if (extraction.document_type === 'digital_receipt') {
+    if (extraction.fraud_signals.length > 0) {
+      console.warn(`[stackd-api] digital receipt with fraud signals from ${walletAddress}: ${signals}`);
+      return refuse('This does not look like a genuine receipt.');
+    }
+    if (!normaliseReceiptNumber(extraction.receipt_number)) {
+      return refuse('Online receipts must show the order number. Include it in the screenshot.');
+    }
+  }
+
+  if (extraction.confidence < MIN_CONFIDENCE) {
+    return refuse("The receipt couldn't be read clearly enough. Try a sharper, flatter photo.");
+  }
+
+  if (!Number.isFinite(extraction.total_amount) || extraction.total_amount <= 0) {
+    return refuse('No valid total could be read from this receipt.');
+  }
+
+  return {
+    ok: true,
+    reading: {
+      documentType: extraction.document_type,
+      merchantName: extraction.merchant_name,
+      totalAmount: extraction.total_amount,
+      currency: extraction.currency,
+      date: extraction.date,
+      time: extraction.time,
+      receiptNumber: extraction.receipt_number,
+      confidence: extraction.confidence,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Email lane: the brand's signature proves it, Claude reads it
+// ---------------------------------------------------------------------------
+
+/**
+ * A failed signature is refused, never handed to Claude to judge instead: an
+ * email claiming to be from amazon.com whose signature breaks was almost
+ * certainly edited, and the edit is exactly what pixels cannot reveal. The
+ * refusal points to the photo lane, which keeps its own stricter checks and
+ * the online-order cap.
+ */
+async function readEmail(raw: Buffer, walletAddress: string): Promise<LaneResult> {
+  const verdict = await verifyReceiptEmail(raw);
+  if (!verdict.ok) {
+    if (verdict.kind === 'dns') {
+      return { ok: false, status: 502, reason: verdict.reason, release: true };
+    }
+    console.warn(`[stackd-api] email refused (${verdict.kind}) from ${walletAddress}`);
+    return { ok: false, status: 200, reason: verdict.reason };
+  }
+
+  if (!verdict.text) {
+    return { ok: false, status: 200, reason: "That email doesn't contain a readable receipt." };
+  }
+
+  let extraction;
+  try {
+    extraction = await extractEmailReceipt({
+      senderDomain: verdict.senderDomain,
+      subject: verdict.subject,
+      text: verdict.text,
+    });
+  } catch (error) {
+    if (error instanceof ClaudeUnavailableError) {
+      return { ok: false, status: 502, reason: error.message, release: true };
+    }
+    console.error('[stackd-api] email extraction threw:', error);
+    return {
+      ok: false,
+      status: 500,
+      reason: 'Something went wrong verifying that receipt.',
+      release: true,
+    };
+  }
+
+  const seen = {
+    merchantName: extraction.merchant_name || verdict.brand.name,
+    date: extraction.date,
+    currency: extraction.currency,
+    confidence: extraction.confidence,
+  };
+  const refuse = (reason: string): LaneResult => ({ ok: false, status: 200, reason, seen });
+
+  if (extraction.email_kind === 'refund_or_cancellation') {
+    return refuse("Refunds and cancelled orders don't earn cashback.");
+  }
+  if (extraction.email_kind !== 'purchase_receipt') {
+    return refuse(
+      `That email from ${verdict.brand.name} isn't a receipt. Upload the order confirmation or payment receipt.`,
+    );
+  }
+  if (extraction.confidence < MIN_CONFIDENCE) {
+    return refuse("The total in this email couldn't be read clearly enough.");
+  }
+  if (!Number.isFinite(extraction.total_amount) || extraction.total_amount <= 0) {
+    return refuse('No valid total could be read from this email.');
+  }
+
+  console.info(
+    `[stackd-api] DKIM-verified ${verdict.brand.ticker} email (${verdict.signingDomain}) from ${walletAddress}`,
+  );
+
+  return {
+    ok: true,
+    reading: {
+      documentType: 'verified_email',
+      merchantName: seen.merchantName,
+      totalAmount: extraction.total_amount,
+      currency: extraction.currency,
+      date: extraction.date,
+      time: extraction.time,
+      receiptNumber: extraction.receipt_number,
+      confidence: extraction.confidence,
+      signedDate: verdict.signedAt ? verdict.signedAt.toISOString().slice(0, 10) : undefined,
+      brand: verdict.brand,
+      identityKeys: emailIdentityKeys({
+        brandSlug: verdict.brand.slug,
+        signatureIds: verdict.signatureIds,
+        messageId: verdict.messageId,
+      }),
+      verifiedBy: { method: 'dkim', domain: verdict.signingDomain },
+    },
+  };
 }

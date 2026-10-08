@@ -100,11 +100,13 @@ export const MAX_DIGITAL_RECEIPT_USD = positiveNumberEnv('MAX_DIGITAL_RECEIPT_US
  * with a correctly formatted order number and Seattle's real sales tax passed
  * every visual check in testing. So only the first `digitalCapUsd` of one
  * counts, which bounds what any single fake can earn while a genuine large
- * order still earns on part of it. Paper receipts count in full.
+ * order still earns on part of it. Paper receipts count in full, and so do
+ * receipt emails whose DKIM signature verified: the signature rules out the
+ * forgery the cap exists for.
  */
 export function eligibleAmountUsd(
   amountUsd: number,
-  documentType: 'paper_receipt_photo' | 'digital_receipt' | 'other',
+  documentType: 'paper_receipt_photo' | 'digital_receipt' | 'verified_email' | 'other',
   digitalCapUsd: number = MAX_DIGITAL_RECEIPT_USD,
 ): { eligibleUsd: number; capped: boolean } {
   if (documentType === 'digital_receipt' && amountUsd > digitalCapUsd) {
@@ -211,4 +213,27 @@ export function receiptFingerprint(input: {
     receiptNumber: number || null,
     receiptTime: time || null,
   };
+}
+
+/** Shortest order number trusted to identify an online order on its own. */
+export const ONLINE_ORDER_MIN_LENGTH = 8;
+
+/**
+ * One online order, whichever email or screenshot shows it.
+ *
+ * A merchant sends several emails for one order — confirmed, shipped,
+ * delivered — each with its own date and signature, and a shipping email can
+ * show a different date or a partial total, so receiptFingerprint misses it.
+ * Online order numbers are unique per merchant, so brand plus number is enough
+ * on its own. Short numbers are skipped: "34" on an app order comes round
+ * again every day. Paper receipts never use this key, since till numbers
+ * repeat from store to store.
+ */
+export function onlineOrderKey(
+  brandSlug: string,
+  receiptNumber: string | null | undefined,
+): string | null {
+  const number = normaliseReceiptNumber(receiptNumber);
+  if (number.length < ONLINE_ORDER_MIN_LENGTH) return null;
+  return sha256Hex(['order', brandSlug, number].join('|'));
 }

@@ -27,10 +27,12 @@ not a token Stackd prints.
 
 ## How it works
 
-1. **Upload a receipt.** A photo of a paper receipt, or a screenshot of an online order.
-2. **Automatic verification.** A vision model reads the merchant, total and date,
-   and the receipt is screened for tampering, duplication and eligibility. There
-   is no manual review queue.
+1. **Upload a receipt.** A photo of a paper receipt, a screenshot of an online
+   order, or the receipt email itself.
+2. **Automatic verification.** A receipt email is proved genuine by the brand's
+   own DKIM signature; a photo is read by a vision model for the merchant, total
+   and date. Every receipt is screened for tampering, duplication and
+   eligibility. There is no manual review queue.
 3. **Receive shares.** Tokenized stock transfers from the Stackd treasury to your
    wallet. Stackd never takes custody of user funds.
 
@@ -54,6 +56,10 @@ the list can be paid.
 
 - **AI verification.** Claude extracts structured receipt data through a
   schema-enforced tool call, validated again on the server before any payout.
+- **Signed email receipts.** A receipt email is checked against the DKIM
+  signature of the brand that sent it, the same cryptographic check mail servers
+  use, so an edited or invented email is refused outright. A verified email
+  earns on its full order total.
 - **Layered fraud screening.** Image provenance, duplicate detection across all
   wallets, total reconciliation, date windows and rate limits.
 - **Multi-currency.** Receipts in around 30 currencies, converted at European
@@ -72,6 +78,7 @@ flowchart LR
   User(["User"]) --> Web["Web app<br/>Next.js"]
   Web --> API["API<br/>Express"]
   API --> Claude["Claude<br/>receipt verification"]
+  API --> DNS["DNS<br/>brand DKIM keys"]
   API --> DB[("PostgreSQL")]
   API --> RPC["Solana<br/>Helius RPC"]
   RPC --> Wallet(["User wallet"])
@@ -104,7 +111,7 @@ compiled by Next.js through `transpilePackages`.
 
 ### Prerequisites
 
-- Node.js 18.17 or later
+- Node.js 22
 - A [Helius](https://helius.dev) RPC key
 - A PostgreSQL database
 - An Anthropic API key, or an OpenRouter key
@@ -181,6 +188,8 @@ Meteora Dynamic Bonding Curve.
 - The database lives in a private schema with row-level security; only the API
   can read or write it.
 - Payouts are idempotent and bounded by a daily limit.
+- Receipt emails are accepted only with a valid DKIM signature from the brand's
+  own domain, and are read in memory, never stored.
 
 To report a vulnerability, please use GitHub's private vulnerability reporting on
 this repository rather than opening a public issue.

@@ -12,6 +12,7 @@ import {
   eligibleAmountUsd,
   normaliseReceiptNumber,
   normaliseTime,
+  onlineOrderKey,
   positiveNumberEnv,
   receiptFingerprint,
 } from './receipt-checks.js';
@@ -87,6 +88,31 @@ describe('test_online_order_cap', () => {
       eligibleUsd: 300,
       capped: false,
     });
+  });
+
+  it('never caps a receipt email whose signature verified', () => {
+    assert.deepEqual(eligibleAmountUsd(300, 'verified_email', 100), {
+      eligibleUsd: 300,
+      capped: false,
+    });
+  });
+});
+
+describe('test_online_order_key', () => {
+  it('keys one order the same however its number is printed', () => {
+    const a = onlineOrderKey('amazon', '112-1234567-1234567');
+    assert.ok(a);
+    assert.equal(onlineOrderKey('amazon', '#112 1234567 1234567'), a);
+  });
+
+  it('keeps brands apart', () => {
+    assert.notEqual(onlineOrderKey('amazon', 'W1234567890'), onlineOrderKey('apple', 'W1234567890'));
+  });
+
+  it('skips numbers too short to be unique on their own', () => {
+    assert.equal(onlineOrderKey('mcdonalds', 'ORD #34'), null);
+    assert.equal(onlineOrderKey('amazon', '1234567'), null);
+    assert.equal(onlineOrderKey('amazon', ''), null);
   });
 });
 

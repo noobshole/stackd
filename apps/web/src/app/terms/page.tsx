@@ -14,7 +14,7 @@ import { LegalSection, PageShell } from '@/components/layout/PageShell';
  * rather than guessed at.
  */
 
-const UPDATED = '2026-09-24';
+const UPDATED = '2026-10-08';
 const CONTACT = 'https://github.com/noobshole/stackd/issues';
 
 export const metadata: Metadata = {
@@ -33,7 +33,9 @@ export default function TermsPage() {
         <p>
           You upload a photo of a receipt from a supported brand. Claude, an AI model, reads the
           merchant, total, date and transaction number, and judges whether the receipt looks
-          genuine. If it passes, Stackd transfers tokenized shares of that brand from its treasury
+          genuine. You can also upload the receipt email the brand sent you, as the original .eml
+          file: then the brand&apos;s own email signature (DKIM) proves it genuine, and Claude only
+          reads it. If it passes, Stackd transfers tokenized shares of that brand from its treasury
           to the Solana address you provided — up to {MAX_PCT_BACK}% of the receipt total,
           depending on the brand.
         </p>
@@ -75,14 +77,21 @@ export default function TermsPage() {
           </li>
           <li>Receipts totalling over $1,000 are held for manual review.</li>
           <li>
-            Online orders (screenshots, emails and PDFs) earn cashback on up to $100 of the
-            order total.
+            Online orders shown as screenshots or PDFs earn cashback on up to $100 of the order
+            total.
+          </li>
+          <li>
+            Receipt emails count only when they come straight from the brand and its signature
+            verifies. Forwarded emails, refunds, cancellations and edited emails are refused. A
+            verified receipt email earns on the full order total.
           </li>
           <li>Three receipts per wallet per 24 hours.</li>
           <li>
             Each receipt can be claimed once, ever, by anyone. We identify a receipt by its
             merchant, date, total, transaction number and time of purchase, and by a
-            fingerprint of the image.
+            fingerprint of the image. An online order counts once per order number, however many
+            emails or screenshots show it, and a receipt email is also identified by its
+            signature.
           </li>
           <li>
             Images labelled as AI-generated, or saved from photo-editing software, are refused.

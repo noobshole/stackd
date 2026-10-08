@@ -8,12 +8,12 @@ const STEPS = [
   {
     n: '01',
     title: 'Snap the receipt',
-    body: 'Photograph any receipt from a launch brand. Paper, email, app screenshot — all fine.',
+    body: 'Photograph any receipt from a launch brand, paper or screenshot. Got it by email? Upload the email itself.',
   },
   {
     n: '02',
-    title: 'Claude reads it',
-    body: 'A vision model pulls the merchant, total and date, and flags anything that looks edited or generated. No review queue, no waiting on a human.',
+    title: 'We check it',
+    body: "Claude pulls the merchant, total and date, and flags anything edited or generated. A receipt email is checked against the store's own signature, so a fake fails outright. No review queue.",
   },
   {
     n: '03',

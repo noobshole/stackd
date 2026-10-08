@@ -48,6 +48,18 @@ export interface Brand {
   category: string;
   /** Alternate merchant spellings for fuzzy receipt matching. */
   aliases: string[];
+  /**
+   * Domains the brand sends receipt emails from. A receipt email counts as this
+   * brand's only when its From address is one of these, or a subdomain, and it
+   * carries a passing DKIM signature from the same domain. List only domains the
+   * brand itself owns: anyone who controls a listed domain can sign "receipts".
+   */
+  emailDomains: string[];
+  /**
+   * Subdomains of emailDomains where someone other than the brand writes the
+   * message, such as Amazon's buyer-seller messaging. Never trusted.
+   */
+  emailDomainsBlocked?: string[];
   /** Brand mark colour, used only for the monogram tile. */
   accent: string;
 }
@@ -66,6 +78,13 @@ export const BRANDS: Brand[] = [
     // "MCDONALD'S" tokenises to ["mcdonald","s"]; "MCDONALDS" to ["mcdonalds"].
     // Both spellings appear on real receipts, so both are listed.
     aliases: ['mcdonalds', 'mc donalds', 'mcd', "mcdonald's restaurant", 'golden arches'],
+    emailDomains: [
+      'mcdonalds.com',
+      'mcdonalds.co.id',
+      'mcdonalds.com.sg',
+      'mcdonalds.com.my',
+      'mcdonalds.com.ph',
+    ],
     accent: '#DA291C',
   },
   {
@@ -79,6 +98,24 @@ export const BRANDS: Brand[] = [
     underlying: 'Amazon.com, Inc. (NASDAQ: AMZN)',
     category: 'Online retail',
     aliases: ['amazon.com', 'amzn', 'amzn mktp', 'amazon marketplace', 'amazon prime'],
+    emailDomains: [
+      'amazon.com',
+      'amazon.co.uk',
+      'amazon.de',
+      'amazon.fr',
+      'amazon.it',
+      'amazon.es',
+      'amazon.nl',
+      'amazon.ca',
+      'amazon.com.mx',
+      'amazon.com.br',
+      'amazon.com.au',
+      'amazon.co.jp',
+      'amazon.in',
+      'amazon.sg',
+    ],
+    // Sellers write these messages themselves; the order emails come from amazon.com.
+    emailDomainsBlocked: ['marketplace.amazon.com'],
     accent: '#232F3E',
   },
   {
@@ -92,6 +129,7 @@ export const BRANDS: Brand[] = [
     underlying: 'NIKE, Inc. (NYSE: NKE)',
     category: 'Apparel',
     aliases: ['nike store', 'nike inc', 'niketown', 'nike factory store'],
+    emailDomains: ['nike.com'],
     accent: '#111111',
   },
   {
@@ -105,6 +143,7 @@ export const BRANDS: Brand[] = [
     underlying: 'Costco Wholesale Corporation (NASDAQ: COST)',
     category: 'Groceries & retail',
     aliases: ['costco wholesale', 'costco.com', 'costco whse', 'costco gas'],
+    emailDomains: ['costco.com', 'costco.ca'],
     accent: '#005DAA',
   },
   {
@@ -118,6 +157,7 @@ export const BRANDS: Brand[] = [
     underlying: 'lululemon athletica inc. (NASDAQ: LULU)',
     category: 'Apparel',
     aliases: ['lululemon athletica', 'lulu'],
+    emailDomains: ['lululemon.com'],
     accent: '#D31334',
   },
   {
@@ -131,6 +171,7 @@ export const BRANDS: Brand[] = [
     underlying: 'Netflix, Inc. (NASDAQ: NFLX)',
     category: 'Subscriptions',
     aliases: ['netflix.com', 'netflix inc', 'nflx'],
+    emailDomains: ['netflix.com'],
     accent: '#E50914',
   },
   {
@@ -150,6 +191,7 @@ export const BRANDS: Brand[] = [
       'wmt',
       'walmart neighborhood market',
     ],
+    emailDomains: ['walmart.com', 'walmart.ca'],
     accent: '#0071CE',
   },
   {
@@ -165,6 +207,7 @@ export const BRANDS: Brand[] = [
     underlying: 'Apple Inc. (NASDAQ: AAPL)',
     category: 'Electronics',
     aliases: ['apple store', 'apple.com', 'apple inc'],
+    emailDomains: ['apple.com'],
     accent: '#6E6E73',
   },
 ];
