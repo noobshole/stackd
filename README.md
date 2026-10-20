@@ -68,6 +68,9 @@ the list can be paid.
   and Backpack are supported.
 - **Reliable payouts.** Idempotent transfers, confirmed on-chain, with a daily
   payout limit.
+- **Stock-aware.** Payouts send only stock the treasury already holds. While a
+  brand restocks, its receipts still verify and show what they would earn, and
+  demand is counted per brand as anonymous totals.
 - **$STACKD bonus.** An optional bonus token launched on a Meteora Dynamic
   Bonding Curve.
 

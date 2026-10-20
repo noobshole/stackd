@@ -29,6 +29,7 @@ import {
   getVaultBalance,
 } from '@stackd/solana/server';
 import { positiveNumberEnv } from '../lib/receipt-checks.js';
+import { getDemand } from '../lib/store/demand.js';
 import { getGuards } from '../lib/store/guards.js';
 
 /** Shorter secrets are treated as unset — the route stays disabled. */
@@ -146,6 +147,8 @@ healthTreasuryRouter.get('/health/treasury', async (req: Request, res: Response)
   const priceUsd = typeof stackdPrice === 'number' ? stackdPrice : null;
   const guards = getGuards();
   const payoutBudget = await section(() => guards.budget.status());
+  // Receipts verified for a paused brand: the demand a restock would meet.
+  const pausedDemand = await section(() => getDemand().totals());
 
   const stackdVault = await section(async () => {
     if (!stackdConfig) return null;
@@ -194,7 +197,7 @@ healthTreasuryRouter.get('/health/treasury', async (req: Request, res: Response)
     warnings.push(`Today's payout cap of $${payoutBudget.capUsd} is used up: payouts are paused.`);
   }
 
-  const sections = { sol, usdc, xstocks, stackdVault, dbc, payoutBudget };
+  const sections = { sol, usdc, xstocks, stackdVault, dbc, payoutBudget, pausedDemand };
   const ok = Object.values(sections).every(
     (s) => s === null || typeof s !== 'object' || !('error' in s),
   );
@@ -210,6 +213,7 @@ healthTreasuryRouter.get('/health/treasury', async (req: Request, res: Response)
     dbc: dbc && typeof dbc === 'object' && !('error' in dbc) ? { ...dbc, priceUsd } : dbc,
     storage: guards.backend,
     payoutBudget,
+    pausedDemand,
     warnings,
   });
 });

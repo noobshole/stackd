@@ -18,11 +18,15 @@ import { LegalSection, PageShell } from '@/components/layout/PageShell';
  *     $STACKD bonus applies (hasPriorPayout, apps/api/src/routes/confirm-receipt.ts)
  *   - usage is counted in aggregate only: scripts/mainnet/check.ts reports
  *     totals and a repeat rate, and never prints an address
+ *   - a receipt that verifies for a brand whose payouts are paused is not
+ *     stored either: stackd.paused_demand keeps hashes of its duplicate keys,
+ *     its brand and the reward it would have paid, with no wallet or IP
+ *     (apps/api/src/lib/store/demand.ts)
  *   - no analytics, no tracking cookies anywhere in apps/web
  * If any of that changes, this page has to change with it.
  */
 
-const UPDATED = '2026-10-08';
+const UPDATED = '2026-10-20';
 const CONTACT = 'https://github.com/noobshole/stackd/issues';
 
 export const metadata: Metadata = {
@@ -74,6 +78,13 @@ export default function PrivacyPage() {
             <strong className="font-medium text-ink">Your IP address and a timestamp,</strong> used
             only to enforce rate limits.
           </li>
+          <li>
+            <strong className="font-medium text-ink">If a brand&apos;s payouts are paused</strong>{' '}
+            while we restock, your receipt is not stored and nothing is paid. We count it toward that
+            brand&apos;s demand: a one-way hash of its fingerprint, the brand and the reward it would
+            have paid, with no wallet address or IP. The hash means the same receipt is counted
+            once.
+          </li>
         </ul>
         <p>
           We never ask for your name, email address, phone number, date of birth, payment details
@@ -91,8 +102,9 @@ export default function PrivacyPage() {
           thing: the $STACKD bonus starts from your second paid receipt.
         </p>
         <p>
-          We also count receipts in aggregate — how many wallets come back for a second claim, for
-          example — to learn whether Stackd works. Those figures are totals and never identify a
+          We also count receipts in aggregate — how many wallets come back for a second claim, or
+          how many receipts arrived for a brand while its payouts were paused, for example — to
+          learn whether Stackd works and which brands to restock. Those figures are totals and never identify a
           person or a wallet. Nothing is used for advertising or profiling, and nothing is sold.
         </p>
       </LegalSection>
@@ -146,6 +158,10 @@ export default function PrivacyPage() {
             <strong className="font-medium text-ink">Receipt records</strong> (the fingerprint,
             extracted fields and payout details) are kept indefinitely. Deleting them would let the
             same receipt be claimed again.
+          </li>
+          <li>
+            <strong className="font-medium text-ink">Paused-brand counts</strong> are kept
+            indefinitely. They hold no wallet address, IP or receipt details.
           </li>
           <li>
             <strong className="font-medium text-ink">IP addresses</strong> are deleted

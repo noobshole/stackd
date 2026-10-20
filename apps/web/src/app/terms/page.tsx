@@ -14,7 +14,7 @@ import { LegalSection, PageShell } from '@/components/layout/PageShell';
  * rather than guessed at.
  */
 
-const UPDATED = '2026-10-08';
+const UPDATED = '2026-10-20';
 const CONTACT = 'https://github.com/noobshole/stackd/issues';
 
 export const metadata: Metadata = {
@@ -100,6 +100,12 @@ export default function TermsPage() {
           <li>
             Stackd applies a daily cap on total payouts. When it is reached, claims pause until the
             next day; your verified receipt stays claimable.
+          </li>
+          <li>
+            When the treasury holds none of a brand&apos;s stock, payouts in it are paused. A
+            receipt sent then is still checked, and you are shown what it would earn, but it is
+            not claimable and nothing is held or owed for it. It isn&apos;t used up either: you can
+            send it again once payouts reopen, while it is still within the date window.
           </li>
           <li>
             Receipts in other currencies are converted to US dollars at the European Central Bank

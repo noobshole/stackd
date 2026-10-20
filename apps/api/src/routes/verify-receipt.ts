@@ -22,7 +22,9 @@
  *   5. currency -> USD, then the USD caps
  *   6. brand match (an email's brand is its signature's)
  *   7. fingerprint: the same receipt re-photographed or re-sent, from any wallet
- *      stock: the treasury holds enough of the brand's xStock to pay it
+ *      stock: the treasury holds enough of the brand's xStock to pay it. If
+ *      not, the user still sees what it is worth (paused), and the receipt
+ *      counts once toward that brand's demand (lib/store/demand.ts)
  *   8. insert — the database's unique indexes are the final, race-safe check
  */
 
@@ -40,6 +42,7 @@ import { checkPayoutStock } from '../lib/inventory.js';
 import { checkProvenance } from '../lib/provenance.js';
 import {
   MAX_DIGITAL_RECEIPT_USD,
+  RECEIPT_MAX_AGE_DAYS,
   checkReceiptDate,
   eligibleAmountUsd,
   normaliseReceiptNumber,
@@ -48,6 +51,7 @@ import {
   receiptFingerprint,
   sha256Hex,
 } from '../lib/receipt-checks.js';
+import { getDemand } from '../lib/store/demand.js';
 import { getGuards, limits, type LimitKind } from '../lib/store/guards.js';
 
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -111,6 +115,20 @@ interface VerifyResponse {
   /** Publication date of fxRate. Null for USD receipts. */
   fxRateDate?: string | null;
   submissionsRemaining?: number;
+  /**
+   * The receipt verified, but its brand's payouts are paused while the
+   * treasury restocks. Flagged, with no receiptId, but the reward fields are
+   * filled in so the user can see what it is worth.
+   */
+  paused?: boolean;
+  /** With paused: the last day, YYYY-MM-DD, this receipt still fits the date window. */
+  resendBy?: string;
+}
+
+/** The last day a receipt dated `date` (YYYY-MM-DD) is still inside the date window. */
+function lastDayInWindow(date: string): string {
+  const day = Date.parse(`${date}T00:00:00Z`) + RECEIPT_MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
+  return new Date(day).toISOString().slice(0, 10);
 }
 
 function rejection(reason: string, extra: Partial<VerifyResponse> = {}): VerifyResponse {
@@ -431,11 +449,32 @@ async function handleVerify(req: Request, res: Response): Promise<void> {
       `[stackd-api] ${match.brand.ticker} out of stock: treasury holds ` +
         `${stock.heldShares}, payout needs ~${stock.neededShares.toFixed(8)}`,
     );
-    res.status(503).json(
+    // Counted once per receipt, as totals (lib/store/demand.ts). Bookkeeping
+    // only: a failure here must not change what the user is told.
+    await getDemand()
+      .record({ ticker: match.brand.ticker, cashbackUsd, keys: fingerprints })
+      .catch((error) => console.error('[stackd-api] paused-demand record failed:', error));
+    // The receipt verified, so the user sees what it is worth; there is just
+    // no receiptId to claim with. flagged stays true for any older client, and
+    // 200 because the request itself succeeded: the pause is in the body.
+    res.status(200).json(
       rejection(
         `Payouts in ${match.brand.ticker} are paused while we restock. Your receipt wasn't ` +
-          'used up — send it again later.',
-        { ...seen, ...fx, submissionsRemaining: await guards.walletRemaining(walletAddress) },
+          'used up — send it again once they reopen.',
+        {
+          ...seen,
+          ...fx,
+          paused: true,
+          resendBy: lastDayInWindow(dated.date),
+          brand: match.brand.name,
+          ticker: match.brand.ticker,
+          amountUsd,
+          pctBack: match.brand.pctBack,
+          cashbackUsd,
+          ...(capped ? { eligibleUsd, digitalCapUsd: MAX_DIGITAL_RECEIPT_USD } : {}),
+          ...(reading.verifiedBy ? { verifiedBy: reading.verifiedBy } : {}),
+          submissionsRemaining: await guards.walletRemaining(walletAddress),
+        },
       ),
     );
     return;

@@ -27,6 +27,13 @@ export interface VerifyResponse {
   /** Publication date of fxRate. Null for USD receipts. */
   fxRateDate?: string | null;
   submissionsRemaining?: number;
+  /**
+   * The receipt verified, but the brand's payouts are paused while the
+   * treasury restocks. Flagged and unclaimable, with the reward fields filled.
+   */
+  paused?: boolean;
+  /** With paused: the last day (YYYY-MM-DD) the receipt still fits the date window. */
+  resendBy?: string;
 }
 
 export function apiBase(): string {

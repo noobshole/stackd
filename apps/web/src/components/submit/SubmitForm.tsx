@@ -421,6 +421,106 @@ function Result({
   const converted =
     result.currency != null && result.currency !== 'USD' && result.originalAmount != null;
 
+  const header = (
+    <div className="flex items-center gap-3">
+      {brand && <BrandMark brand={brand} size={38} />}
+      <div className="min-w-0">
+        <h2 className="text-sm font-medium text-ink">{result.brand} receipt verified</h2>
+        <p className="num text-xs text-ink-muted">
+          {result.verifiedBy
+            ? `Signed by ${result.verifiedBy.domain}`
+            : result.confidence != null && `${Math.round(result.confidence * 100)}% confidence`}
+        </p>
+      </div>
+    </div>
+  );
+
+  const breakdown = (
+    <>
+      <dl className="num mt-4 space-y-2.5 text-sm">
+        <Row
+          label="Receipt total"
+          value={
+            converted
+              ? `${formatMoney(result.originalAmount, result.currency)} ≈ ${formatUsd(result.amountUsd)}`
+              : formatUsd(result.amountUsd)
+          }
+          muted
+        />
+        {result.eligibleUsd != null && (
+          <Row label="Earns cashback" value={formatUsd(result.eligibleUsd)} muted />
+        )}
+        <Row label={`Cashback (${result.pctBack}%)`} value={formatUsd(result.cashbackUsd)} muted />
+        <div className="border-t border-line pt-2.5">
+          <div className="flex items-baseline justify-between gap-3">
+            <dt className="text-ink-muted">{result.ticker} to you</dt>
+            <dd className="text-base font-medium text-ink">
+              {shares != null ? formatTokenAmount(shares) : '—'}
+            </dd>
+          </div>
+        </div>
+      </dl>
+
+      {converted && result.fxRate != null && (
+        <p className="num mt-2 text-2xs leading-relaxed text-ink-subtle">
+          Converted at 1 USD = {result.fxRate.toLocaleString('en-US')} {result.currency}
+          {result.fxRateDate && `, ECB reference rate for ${result.fxRateDate}`}.
+        </p>
+      )}
+
+      {result.digitalCapUsd != null && (
+        <p className="num mt-2 text-2xs leading-relaxed text-ink-subtle">
+          Online orders earn cashback on up to {formatUsd(result.digitalCapUsd)} of the total.
+        </p>
+      )}
+
+      {!priceKnown && (
+        <p className="mt-2 text-2xs leading-relaxed text-ink-subtle">
+          Share count pending — no live price for {result.ticker} right now.
+        </p>
+      )}
+    </>
+  );
+
+  const remaining = result.submissionsRemaining != null && (
+    <p className="num mt-2 text-center text-2xs text-ink-subtle">
+      {result.submissionsRemaining} of 3 submissions left today
+    </p>
+  );
+
+  if (result.paused) {
+    return (
+      <>
+        {header}
+        <span className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-primary-soft px-2.5 py-1 text-2xs font-medium text-primary">
+          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-primary" />
+          Payout pending
+        </span>
+        {breakdown}
+
+        <p className="mt-4 rounded-lg bg-sunken px-3 py-2.5 text-2xs leading-relaxed text-ink-muted">
+          Payouts in {result.ticker} are paused while we restock. This receipt wasn&apos;t used up
+          {result.resendBy
+            ? `: if they reopen by ${formatDay(result.resendBy)}, send it again then.`
+            : ': send it again once they reopen.'}
+        </p>
+
+        <a
+          href={shareOnXUrl(result, shares)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="btn-primary mt-5 w-full"
+        >
+          Share on X
+        </a>
+        <button type="button" onClick={onReset} className="btn-ghost mt-2 w-full">
+          Try another receipt
+        </button>
+        {remaining}
+      </>
+    );
+  }
+
   if (result.flagged) {
     return (
       <>
@@ -469,60 +569,8 @@ function Result({
 
   return (
     <>
-      <div className="flex items-center gap-3">
-        {brand && <BrandMark brand={brand} size={38} />}
-        <div className="min-w-0">
-          <h2 className="text-sm font-medium text-ink">{result.brand} receipt verified</h2>
-          <p className="num text-xs text-ink-muted">
-            {result.verifiedBy
-              ? `Signed by ${result.verifiedBy.domain}`
-              : result.confidence != null && `${Math.round(result.confidence * 100)}% confidence`}
-          </p>
-        </div>
-      </div>
-
-      <dl className="num mt-4 space-y-2.5 text-sm">
-        <Row
-          label="Receipt total"
-          value={
-            converted
-              ? `${formatMoney(result.originalAmount, result.currency)} ≈ ${formatUsd(result.amountUsd)}`
-              : formatUsd(result.amountUsd)
-          }
-          muted
-        />
-        {result.eligibleUsd != null && (
-          <Row label="Earns cashback" value={formatUsd(result.eligibleUsd)} muted />
-        )}
-        <Row label={`Cashback (${result.pctBack}%)`} value={formatUsd(result.cashbackUsd)} muted />
-        <div className="border-t border-line pt-2.5">
-          <div className="flex items-baseline justify-between gap-3">
-            <dt className="text-ink-muted">{result.ticker} to you</dt>
-            <dd className="text-base font-medium text-ink">
-              {shares != null ? formatTokenAmount(shares) : '—'}
-            </dd>
-          </div>
-        </div>
-      </dl>
-
-      {converted && result.fxRate != null && (
-        <p className="num mt-2 text-2xs leading-relaxed text-ink-subtle">
-          Converted at 1 USD = {result.fxRate.toLocaleString('en-US')} {result.currency}
-          {result.fxRateDate && `, ECB reference rate for ${result.fxRateDate}`}.
-        </p>
-      )}
-
-      {result.digitalCapUsd != null && (
-        <p className="num mt-2 text-2xs leading-relaxed text-ink-subtle">
-          Online orders earn cashback on up to {formatUsd(result.digitalCapUsd)} of the total.
-        </p>
-      )}
-
-      {!priceKnown && (
-        <p className="mt-2 text-2xs leading-relaxed text-ink-subtle">
-          Share count pending — no live price for {result.ticker} right now.
-        </p>
-      )}
+      {header}
+      {breakdown}
 
       {claim ? (
         <Claimed claim={claim} />
@@ -543,14 +591,34 @@ function Result({
       <button type="button" onClick={onReset} className="btn-ghost mt-2 w-full">
         Submit another
       </button>
-
-      {result.submissionsRemaining != null && (
-        <p className="num mt-2 text-center text-2xs text-ink-subtle">
-          {result.submissionsRemaining} of 3 submissions left today
-        </p>
-      )}
+      {remaining}
     </>
   );
+}
+
+/** "2026-11-03" → "3 Nov", read as the calendar day it names. */
+function formatDay(day: string): string {
+  return new Date(`${day}T00:00:00Z`).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'UTC',
+  });
+}
+
+/**
+ * A post about a paused receipt's reward. The brand and the amount only: no
+ * receipt total, image or wallet address.
+ */
+function shareOnXUrl(result: VerifyResponse, shares: number | null): string {
+  const amount =
+    shares != null
+      ? `${formatTokenAmount(shares)} ${result.ticker}`
+      : `${formatUsd(result.cashbackUsd)} of ${result.ticker}`;
+  const text = `My ${result.brand} receipt is worth ${amount} on @stackd_: cashback paid in tokenized ${result.brand} stock.`;
+  const site =
+    process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
+    (typeof window !== 'undefined' ? window.location.origin : 'https://usestackd.vercel.app');
+  return `https://x.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(site)}`;
 }
 
 /**

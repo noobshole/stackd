@@ -347,6 +347,37 @@ async function main(): Promise<void> {
       await client.end();
     }
   });
+  await check('Demand while paused', async () => {
+    if (!env('DATABASE_URL')) return;
+    const client = new pg.Client({ connectionString: env('DATABASE_URL'), ssl: { rejectUnauthorized: false } });
+    await client.connect();
+    try {
+      // Receipts that verified for a brand with nothing to pay it with
+      // (apps/api/src/lib/store/demand.ts). Totals only, by design.
+      const { rows } = await client.query<{ ticker: string; receipts: number; cashback_usd: number; since: Date }>(
+        `select ticker, count(*)::int as receipts, sum(cashback_usd)::float8 as cashback_usd, min(seen_at) as since
+           from (select distinct demand_id, ticker, cashback_usd, seen_at
+                   from stackd.paused_demand where cluster = 'mainnet') receipts
+          group by ticker order by receipts desc`,
+      );
+      if (rows.length === 0) {
+        report('info', 'no receipts verified for a paused brand yet');
+        return;
+      }
+      for (const r of rows) {
+        report('info', `${r.ticker}: ${r.receipts} receipt(s) waiting since ${r.since.toISOString().slice(0, 10)}, $${r.cashback_usd.toFixed(2)} to pay them all`);
+      }
+    } catch (error) {
+      // 42P01: the table isn't there yet.
+      if ((error as { code?: string }).code === '42P01') {
+        report('warn', 'stackd.paused_demand is missing: apply apps/api/db/migrations/20261020090000_paused_demand.sql');
+        return;
+      }
+      throw error;
+    } finally {
+      await client.end();
+    }
+  });
 
   heading('Web app');
   await check('Live site RPC', async () => {
