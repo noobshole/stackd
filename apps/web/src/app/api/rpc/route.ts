@@ -25,7 +25,8 @@ const ALLOWED_METHODS = new Set([
   'getLatestBlockhash',
   'getMultipleAccounts',
   'getParsedTokenAccountsByOwner',
-  'getProgramAccounts',
+  // Not getProgramAccounts: nothing here issues it, and one call can scan a
+  // whole program, the costliest request there is on a metered plan.
   'getSlot',
   'getTokenAccountBalance',
   'getTokenAccountsByOwner',

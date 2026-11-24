@@ -34,9 +34,10 @@ const app = express();
 const PORT = Number(process.env.PORT ?? 4000);
 
 /**
- * Behind a hosting proxy (Railway, Render, Fly…) every request arrives from the
+ * Behind a hosting proxy (Vercel, Render, Fly…) every request arrives from the
  * proxy's IP, which would put all users in one per-IP bucket. TRUST_PROXY=1
- * trusts one hop of X-Forwarded-For. Leave it unset when nothing sits in
+ * trusts one hop of X-Forwarded-For, which Vercel sets to the client's
+ * address. Leave it unset when nothing sits in
  * front of the server: trusting the header then would let clients spoof it.
  */
 const trustProxy = process.env.TRUST_PROXY?.trim();
@@ -108,8 +109,24 @@ app.use((_req, res) => {
   res.status(404).json({ flagged: true, reason: 'Not found.' });
 });
 
-app.listen(PORT, async () => {
-  console.log(`[stackd-api] listening on http://localhost:${PORT}`);
+/**
+ * On Vercel the exported app runs as a single function: Vercel serves it, and
+ * nothing here may listen on a port. Anywhere else (npm run dev, a plain host)
+ * the same app listens on PORT.
+ */
+export default app;
+
+if (process.env.VERCEL) {
+  logConfig();
+} else {
+  app.listen(PORT, async () => {
+    console.log(`[stackd-api] listening on http://localhost:${PORT}`);
+    logConfig();
+    await checkStorage();
+  });
+}
+
+function logConfig(): void {
   console.log(`[stackd-api] cluster: ${cluster.toUpperCase()}`);
   console.log(
     `[stackd-api] model: ${RECEIPT_MODEL} via ${VIA_OPENROUTER ? 'OpenRouter' : 'Anthropic'}`,
@@ -120,6 +137,22 @@ app.listen(PORT, async () => {
       `${limits.globalPerHour}/hour total, payouts capped at $${limits.dailyPayoutCapUsd}/day`,
   );
 
+  if (!claudeConfigured()) {
+    console.warn(
+      '[stackd-api] WARNING: no Claude credentials (ANTHROPIC_API_KEY, or ANTHROPIC_AUTH_TOKEN ' +
+        'for OpenRouter) — /verify-receipt will 502.',
+    );
+  } else if (VIA_OPENROUTER && process.env.ANTHROPIC_API_KEY?.trim()) {
+    // The SDK would send it as x-api-key alongside the Bearer token.
+    console.warn(
+      '[stackd-api] WARNING: ANTHROPIC_BASE_URL points at OpenRouter but ANTHROPIC_API_KEY is ' +
+        'set. Put the sk-or- key in ANTHROPIC_AUTH_TOKEN and leave ANTHROPIC_API_KEY empty.',
+    );
+  }
+}
+
+/** A real round trip at boot, so a bad DATABASE_URL shows in the first log lines. */
+async function checkStorage(): Promise<void> {
   if (hasDatabase()) {
     try {
       await getPool().query('select 1 from stackd.receipts limit 1');
@@ -135,17 +168,4 @@ app.listen(PORT, async () => {
   } else {
     console.warn('[stackd-api] storage: MEMORY — receipts, limits and payouts are lost on restart.');
   }
-
-  if (!claudeConfigured()) {
-    console.warn(
-      '[stackd-api] WARNING: no Claude credentials (ANTHROPIC_API_KEY, or ANTHROPIC_AUTH_TOKEN ' +
-        'for OpenRouter) — /verify-receipt will 502.',
-    );
-  } else if (VIA_OPENROUTER && process.env.ANTHROPIC_API_KEY?.trim()) {
-    // The SDK would send it as x-api-key alongside the Bearer token.
-    console.warn(
-      '[stackd-api] WARNING: ANTHROPIC_BASE_URL points at OpenRouter but ANTHROPIC_API_KEY is ' +
-        'set. Put the sk-or- key in ANTHROPIC_AUTH_TOKEN and leave ANTHROPIC_API_KEY empty.',
-    );
-  }
-});
+}

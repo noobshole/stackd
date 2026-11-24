@@ -4,9 +4,14 @@
   "private": true,
   "description": "Stackd backend: receipt verification via Claude vision.",
   "type": "module",
+  "//engines": "Vercel reads the Node version from this package, the project root of the API. mailauth (the DKIM check) needs 22.19 or later.",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
+    "build": "node build.mjs",
     "test": "node --import tsx --test src/lib/fx.test.ts src/lib/receipt-checks.test.ts src/lib/email-receipt.test.ts src/lib/provenance.test.ts src/lib/inventory.test.ts src/lib/store/guards.test.ts src/lib/store/demand.test.ts",
     "typecheck": "tsc --noEmit"
   },
@@ -17,9 +22,9 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.21.2",
-    "mailauth": "^7.1.1",
+    "mailauth": "^8.1.0",
     "mailparser": "^3.9.36",
-    "multer": "^2.0.2",
+    "multer": "^2.5.0",
     "pg": "^8.23.0",
     "zod": "^3.25.76"
   },
@@ -30,6 +35,7 @@
     "@types/multer": "^1.4.12",
     "@types/node": "^20.16.11",
     "@types/pg": "^8.23.1",
+    "esbuild": "^0.28.2",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3"
   }

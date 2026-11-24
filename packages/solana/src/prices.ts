@@ -25,6 +25,40 @@ export interface XStockPrice {
   source: PriceSource | null;
   /** 24h change as a percentage. Only available for 'market' prices. */
   change24hPct: number | null;
+  /**
+   * The listed share price, also reported alongside a market price. Payouts
+   * compare the two (see payoutPriceUsd); display ignores it.
+   */
+  underlyingUsd?: number | null;
+}
+
+/**
+ * Two sources that differ by more than this are not both right: a thin pool
+ * pushed off its price, or a stale feed. Weekend drift, when the DEX keeps
+ * trading and the listed price is frozen at Friday's close, stays well inside.
+ */
+export const MAX_PRICE_DIVERGENCE = 0.25;
+
+/**
+ * The price a payout is sized at, or null when there is none to trust.
+ *
+ * The payout sends `rewardUsd / price` shares, so a price pushed DOWN — one
+ * swap against a thin pool — inflates the shares sent, and the daily cap,
+ * counted in dollars, never sees it. With both sources present, the higher
+ * one is used: the treasury never sends more shares than either price says
+ * the reward is worth. Sources that disagree past MAX_PRICE_DIVERGENCE pause
+ * the payout instead.
+ */
+export function payoutPriceUsd(price: XStockPrice | undefined): number | null {
+  if (!price) return null;
+  const valid = [price.usd, price.underlyingUsd].filter(
+    (p): p is number => typeof p === 'number' && Number.isFinite(p) && p > 0,
+  );
+  if (valid.length === 0) return null;
+  const high = Math.max(...valid);
+  const low = Math.min(...valid);
+  if (high / low > 1 + MAX_PRICE_DIVERGENCE) return null;
+  return high;
 }
 
 interface JupiterPriceEntry {
@@ -61,6 +95,7 @@ export async function fetchXStockPrices(
         usd: entry.usdPrice,
         source: 'market',
         change24hPct: entry.priceChange24h ?? null,
+        underlyingUsd: entry.stockData?.price ?? null,
       };
     } else if (entry?.stockData?.price != null) {
       out[mint] = {

@@ -12,7 +12,7 @@
  * block every receipt.
  */
 
-import { fetchXStockBalances, fetchXStockPrices, type Brand } from '@stackd/solana';
+import { fetchXStockBalances, fetchXStockPrices, payoutPriceUsd, type Brand } from '@stackd/solana';
 import { getCluster, getConnection, getTreasuryKeypair } from '@stackd/solana/server';
 
 /** Headroom over the exact payout: the price can move between verify and confirm. */
@@ -41,9 +41,10 @@ export const defaultStockDeps: StockDeps = {
     return balances.find((b) => b.brand.ticker === brand.ticker)?.uiAmount ?? 0;
   },
   async priceUsd(brand) {
-    // Priced by the brand's mainnet mint on every cluster, as payouts are.
-    const prices = await fetchXStockPrices([brand.mint]);
-    return prices[brand.mint]?.usd ?? null;
+    // Priced by the brand's mainnet mint on every cluster, and by the same
+    // rule, as payouts are.
+    const prices = await fetchXStockPrices([brand.mint], AbortSignal.timeout(10_000));
+    return payoutPriceUsd(prices[brand.mint]);
   },
 };
 

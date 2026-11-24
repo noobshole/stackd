@@ -14,7 +14,8 @@ import { ConnectPrompt } from '@/components/ui/ConnectPrompt';
 import { BrandMark, SectionHeader } from '@/components/ui/primitives';
 import { formatMoney, formatTokenAmount, formatUsd } from '@/lib/format';
 
-const MAX_BYTES = 10 * 1024 * 1024;
+// The API refuses anything bigger (its host caps a request at 4.5 MB).
+const MAX_BYTES = 4 * 1024 * 1024;
 const ACCEPTED = ['image/jpeg', 'image/png', 'application/pdf'];
 
 /**
@@ -111,7 +112,7 @@ export function SubmitForm() {
       return;
     }
     if (next.size > MAX_BYTES) {
-      setFileError('That file is over 10 MB. Try a photo instead of a full-resolution scan.');
+      setFileError('That file is over 4 MB. Try a photo instead of a full-resolution scan.');
       return;
     }
     setFile(next);
@@ -274,7 +275,7 @@ export function SubmitForm() {
                   </svg>
                   <span className="text-sm text-ink">Drop a receipt or browse</span>
                   <span className="text-xs text-ink-subtle">
-                    JPG, PNG, PDF or receipt email (.eml) · up to 10 MB
+                    JPG, PNG, PDF or receipt email (.eml) · up to 4 MB
                   </span>
                 </button>
               )}

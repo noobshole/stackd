@@ -34,7 +34,7 @@ import {
 } from '@solana/spl-token';
 
 import { brandForMint } from './brands';
-import { fetchXStockPrices } from './prices';
+import { fetchXStockPrices, payoutPriceUsd } from './prices';
 import { fetchScaledUiAmountState, toRawAmount } from './scaled-amount';
 import { getConnection, getTreasuryKeypair } from './treasury';
 import { getDbcQuotePrice } from './dbc';
@@ -47,6 +47,9 @@ import { defaultReceiptStore, type ReceiptStore } from './receipt-store';
 
 /** Priority fee, per the project spec. */
 const COMPUTE_UNIT_PRICE_MICROLAMPORTS = 5_000;
+
+/** Longest a payout waits on the price API. */
+const PRICE_TIMEOUT_MS = 10_000;
 
 export class RewardError extends Error {}
 
@@ -134,7 +137,10 @@ export async function accountOpeningCostUsd(args: {
 
   let solUsd: number | null = null;
   try {
-    const prices = await (args.fetchPrices ?? fetchXStockPrices)([SOL_MINT]);
+    const prices = await (args.fetchPrices ?? fetchXStockPrices)(
+      [SOL_MINT],
+      AbortSignal.timeout(PRICE_TIMEOUT_MS),
+    );
     solUsd = prices[SOL_MINT]?.usd ?? null;
   } catch {
     // Priced conservatively below: a price outage must not stop payouts.
@@ -296,10 +302,12 @@ export async function sendXStockReward(
     // 2-3. Price via the shared dual-source path (Jupiter, then underlying).
     // Always by the brand's mainnet mint: a devnet stand-in has no market of
     // its own, and pricing it as the real token keeps the maths identical.
-    const prices = await deps.fetchPrices([brand.mint]);
-    const price = prices[brand.mint]?.usd;
+    // A bounded wait: the claim is already held, and a request killed by the
+    // host's time limit would leave it held for good.
+    const prices = await deps.fetchPrices([brand.mint], AbortSignal.timeout(PRICE_TIMEOUT_MS));
+    const price = payoutPriceUsd(prices[brand.mint]);
     if (price == null) {
-      throw new RewardError(`No price available for ${brand.ticker}; refusing to guess.`);
+      throw new RewardError(`No trustworthy price for ${brand.ticker} right now; nothing was sent.`);
     }
 
     // 4-5. Amount, via the shared multiplier helpers.

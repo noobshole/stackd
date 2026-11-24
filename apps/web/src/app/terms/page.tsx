@@ -14,7 +14,7 @@ import { LegalSection, PageShell } from '@/components/layout/PageShell';
  * rather than guessed at.
  */
 
-const UPDATED = '2026-10-20';
+const UPDATED = '2026-11-24';
 const CONTACT = 'https://github.com/noobshole/stackd/issues';
 
 export const metadata: Metadata = {
@@ -114,7 +114,9 @@ export default function TermsPage() {
           </li>
           <li>
             The number of shares depends on the share price at the moment of payout, so the figure
-            you are shown before claiming is an estimate.
+            you are shown before claiming is an estimate. Where the on-chain market price and the
+            listed share price differ, the higher of the two is used. If they differ by too much to
+            trust either, the payout waits and your receipt stays claimable.
           </li>
         </ul>
         <p>

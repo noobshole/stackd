@@ -54,7 +54,8 @@ import {
 import { getDemand } from '../lib/store/demand.js';
 import { getGuards, limits, type LimitKind } from '../lib/store/guards.js';
 
-const MAX_BYTES = 10 * 1024 * 1024;
+// Vercel caps a function request body at 4.5 MB, multipart overhead included.
+const MAX_BYTES = 4 * 1024 * 1024;
 const ACCEPTED_TYPES = new Set(['image/jpeg', 'image/png', 'application/pdf']);
 
 /** Below this, we do not trust the extraction enough to pay out. */
@@ -209,7 +210,7 @@ verifyReceiptRouter.post(
       if (err instanceof multer.MulterError) {
         const reason =
           err.code === 'LIMIT_FILE_SIZE'
-            ? 'That file is over 10 MB. Try a photo instead of a full-resolution scan.'
+            ? 'That file is over 4 MB. Try a photo instead of a full-resolution scan.'
             : `Upload failed: ${err.message}`;
         res.status(err.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json(rejection(reason));
         return;

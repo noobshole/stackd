@@ -26,7 +26,7 @@ import { LegalSection, PageShell } from '@/components/layout/PageShell';
  * If any of that changes, this page has to change with it.
  */
 
-const UPDATED = '2026-10-20';
+const UPDATED = '2026-11-24';
 const CONTACT = 'https://github.com/noobshole/stackd/issues';
 
 export const metadata: Metadata = {
@@ -127,8 +127,9 @@ export default function PrivacyPage() {
             it sees the addresses being looked up.
           </li>
           <li>
-            <strong className="font-medium text-ink">Vercel</strong> hosts the site and keeps
-            standard server logs.
+            <strong className="font-medium text-ink">Vercel</strong> hosts the site, and runs the
+            service that checks receipts and sends payouts in Singapore. It keeps standard server
+            logs.
           </li>
           <li>
             To check a receipt email&apos;s signature we look up the store&apos;s public signing

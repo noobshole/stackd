@@ -108,7 +108,7 @@ compiled by Next.js through `transpilePackages`.
 | Blockchain | Solana, Token-2022, Meteora Dynamic Bonding Curve |
 | Data | PostgreSQL (Supabase) |
 | Pricing | Jupiter Price API, ECB reference rates |
-| Hosting | Vercel (web), Railway (API) |
+| Hosting | Vercel (web, and the API as a Vercel Function) |
 
 ## Getting started
 

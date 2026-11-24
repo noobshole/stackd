@@ -2,7 +2,7 @@
  * Mainnet readiness — read-only. Run it before anything irreversible:
  *
  *   npm run mainnet:check                              # keys, funding, stock, $STACKD, web
- *   npm run mainnet:check -- --api https://<railway>   # + the deployed API, end to end
+ *   npm run mainnet:check -- --api https://<api host>   # + the deployed API, end to end
  *
  * Reads apps/api/.env and mainnet state. Signs nothing, sends nothing, prints
  * addresses and balances but never a secret. Exits non-zero while any blocker
@@ -405,7 +405,7 @@ async function main(): Promise<void> {
       report(h.storage === 'postgres' ? 'ok' : 'fail', `storage: ${h.storage}`);
       report(h.anthropicKeyConfigured ? 'ok' : 'fail', `Claude credentials: ${h.anthropicKeyConfigured ? `set (${h.claudeVia})` : 'missing'}`);
       const cors = res.headers.get('access-control-allow-origin');
-      report(cors === WEB_URL ? 'ok' : 'fail', cors === WEB_URL ? `CORS allows ${WEB_URL}` : `CORS does not allow ${WEB_URL}: set WEB_ORIGIN on Railway`);
+      report(cors === WEB_URL ? 'ok' : 'fail', cors === WEB_URL ? `CORS allows ${WEB_URL}` : `CORS does not allow ${WEB_URL}: set WEB_ORIGIN on the API host`);
     });
     await check('API /health/treasury', async () => {
       if (env('HEALTH_SECRET').length < 16) {
@@ -413,12 +413,12 @@ async function main(): Promise<void> {
         return;
       }
       const res = await fetch(`${API_URL}/health/treasury`, { headers: { 'x-health-secret': env('HEALTH_SECRET') } });
-      if (res.status === 404) throw new Error('404: HEALTH_SECRET on Railway differs from the local one (or is unset)');
+      if (res.status === 404) throw new Error('404: HEALTH_SECRET on the API host differs from the local one (or is unset)');
       const t = (await res.json()) as { ok?: boolean; treasury?: { address?: string }; warnings?: string[] };
       if (ctx.treasury && t.treasury?.address !== ctx.treasury.publicKey.toBase58()) {
-        report('fail', `Railway pays from ${t.treasury?.address ?? '?'}, not the local treasury`);
+        report('fail', `The deployed API pays from ${t.treasury?.address ?? '?'}, not the local treasury`);
       } else {
-        report('ok', 'Railway uses the same treasury as this .env');
+        report('ok', 'The deployed API uses the same treasury as this .env');
       }
       for (const w of t.warnings ?? []) report('warn', `API reports: ${w}`);
       if (!t.warnings?.length) report('ok', 'API treasury report has no warnings');

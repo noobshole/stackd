@@ -13,7 +13,7 @@ import { after, beforeEach, describe, it } from 'node:test';
 import { PublicKey, type Connection, type Keypair } from '@solana/web3.js';
 
 import { BRAND_BY_TICKER } from './brands';
-import { fetchXStockPrices } from './prices';
+import { MAX_PRICE_DIVERGENCE, fetchXStockPrices, payoutPriceUsd } from './prices';
 import { InMemoryReceiptStore } from './receipt-store';
 import { computeRewardAmount, sendStackdBonus, sendXStockReward } from './rewards';
 import type { StackdConfig } from './stackd';
@@ -264,6 +264,66 @@ describe('test_price_resolution_fallback', () => {
     assert.equal(signature, 'sig-fallback');
     // 0.04 tokens at 8dp, multiplier 1.
     assert.equal(spy.calls[0].rawAmount, 4_000_000n);
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+describe('test_payout_price_guard', () => {
+  const price = (usd: number | null, underlyingUsd?: number | null) => ({
+    mint: THIN.mint,
+    usd,
+    source: 'market' as const,
+    change24hPct: null,
+    underlyingUsd,
+  });
+
+  it('sizes a payout at the higher of the two sources', () => {
+    assert.equal(payoutPriceUsd(price(77.82, 80.06)), 80.06);
+    assert.equal(payoutPriceUsd(price(80.06, 77.82)), 80.06);
+  });
+
+  it('uses the one source there is', () => {
+    assert.equal(payoutPriceUsd(price(50)), 50);
+    assert.equal(payoutPriceUsd(price(null, 99.269)), 99.269);
+    assert.equal(payoutPriceUsd(undefined), null);
+    assert.equal(payoutPriceUsd(price(null, null)), null);
+  });
+
+  it('refuses sources that disagree past the limit', () => {
+    // A thin pool swapped down to half the listed price.
+    assert.equal(payoutPriceUsd(price(50, 100)), null);
+    assert.equal(payoutPriceUsd(price(100, 100 * (1 + MAX_PRICE_DIVERGENCE) + 1)), null);
+  });
+
+  it('sends nothing when the market price has been pushed down', async () => {
+    const store = new InMemoryReceiptStore();
+    await seedReceipt(store, 'receipt-pushed');
+    const spy = spySubmitter('sig-pushed');
+
+    await assert.rejects(
+      sendXStockReward(
+        {
+          recipientWallet: RECIPIENT,
+          xstockMint: THIN.mint,
+          spendUsd: 100,
+          pctBack: 4,
+          receiptId: 'receipt-pushed',
+        },
+        {
+          store,
+          connection: null as unknown as Connection,
+          treasury: null as unknown as Keypair,
+          fetchPrices: async () => ({ [THIN.mint]: price(40, 100) }),
+          fetchScaledState: async () => scaledState(1),
+          submit: spy.fn,
+        },
+      ),
+      /No trustworthy price/,
+    );
+    assert.equal(spy.calls.length, 0);
+    // Released, so the receipt can be claimed once prices agree again.
+    assert.equal(await store.claimLeg('receipt-pushed', 'xstock'), true);
   });
 });
 

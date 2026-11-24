@@ -23,7 +23,7 @@
     "test": "npm test --workspace=@stackd/solana --workspace=@stackd/api",
     "dbc:keygen": "tsx scripts/dbc/new-keypair.ts"
   },
-  "//engines": "Railway's builder (Railpack) keeps only the major version of a range, so \">=18.17\" ran the API on Node 18. Pinned to a major instead: the API's DKIM check (mailauth) needs Node 22.19 or later, and Vercel reads the same field.",
+  "//engines": "Pinned to a major: hosts read only the major from a range (a \">=18.17\" once ran the API on Node 18), and the API's DKIM check (mailauth) needs Node 22.19 or later. Vercel reads this field for the web app, and apps/api/package.json carries the same pin for the API.",
   "engines": {
     "node": "22.x"
   },
@@ -34,7 +34,7 @@
   },
   "//devDependencies": "npm hoists everything except `next` (its platform-specific @next/swc optional deps keep it nested in apps/web). eslint-config-next gets hoisted to the root and then cannot resolve next/dist/compiled/babel/eslint-parser, so `next lint` dies. Declaring next here too puts one copy at the root where both resolve.",
   "devDependencies": {
-    "next": "15.5.27",
+    "next": "15.5.29",
     "tsx": "^4.19.2"
   },
   "overrides": {
