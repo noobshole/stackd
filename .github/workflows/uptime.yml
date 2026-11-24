@@ -18,7 +18,7 @@ jobs:
       - name: API and database
         run: >
           curl --fail --silent --show-error --retry 3 --retry-delay 20 --max-time 30
-          https://stackd-api.vercel.app/health/ready
+          https://stackd-hltq.vercel.app/health/ready
 
       - name: Web app and token metadata
         run: |
