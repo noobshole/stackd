@@ -1,0 +1,31 @@
+{
+  "name": "@stackd/base",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Base payouts: Coinbase B20 tokenized stocks, Chainlink prices, policy and pause checks, memo'd transfers.",
+  "//type": "ESM source, consumed as TypeScript like @stackd/solana: apps/api bundles it with esbuild, and Next compiles it via transpilePackages.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./server": "./src/server.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "//dependencies": "Pinned exactly: this package signs transfers of real assets, so upgrades are deliberate. viem 2.57.18 depends on ox 0.14.65, so the two stay one copy.",
+  "dependencies": {
+    "ox": "0.14.65",
+    "viem": "2.57.18"
+  },
+  "scripts": {
+    "test": "node --import tsx --test src/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^20.16.11",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

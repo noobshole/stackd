@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    // DOM is included because apps/web consumes this package in the browser;
+    // apps/api compiles the same source with a DOM-free lib, so nothing here
+    // may actually depend on DOM globals at runtime.
+    "lib": ["ES2022", "DOM"],
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules"]
+}

@@ -20,8 +20,10 @@
     "devnet:setup": "tsx scripts/devnet/setup.ts",
     "mainnet:check": "tsx scripts/mainnet/check.ts",
     "mainnet:keys": "tsx scripts/mainnet/new-keys.ts",
-    "test": "npm test --workspace=@stackd/solana --workspace=@stackd/api",
-    "dbc:keygen": "tsx scripts/dbc/new-keypair.ts"
+    "test": "npm test --workspace=@stackd/solana --workspace=@stackd/base --workspace=@stackd/api",
+    "dbc:keygen": "tsx scripts/dbc/new-keypair.ts",
+    "base:check": "tsx scripts/base/check.ts",
+    "base:keys": "tsx scripts/base/new-key.ts"
   },
   "//engines": "Pinned to a major: hosts read only the major from a range (a \">=18.17\" once ran the API on Node 18), and the API's DKIM check (mailauth) needs Node 22.19 or later. Vercel reads this field for the web app, and apps/api/package.json carries the same pin for the API.",
   "engines": {
