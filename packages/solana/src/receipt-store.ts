@@ -21,8 +21,14 @@
 
 export type ReceiptStatus = 'pending' | 'confirmed' | 'failed';
 
+/** The chain a receipt is paid on. Solana unless the user chose Base. */
+export type PayoutChain = 'solana' | 'base';
+
 export interface ReceiptRecord {
   id: string;
+  /** Optional only so older rows and tests still fit; absent means Solana. */
+  chain?: PayoutChain;
+  /** On Solana a base58 public key; on Base a checksummed 0x address. */
   walletAddress: string;
   brandName: string;
   brandTicker: string;
@@ -60,8 +66,15 @@ export interface ReceiptRecord {
   imageUrl: string | null;
   claudeConfidence: number | null;
   status: ReceiptStatus;
-  /** xStock payout signature. Non-null means this leg is already paid. */
+  /** Stock payout signature (a transaction hash on Base). Non-null means this leg is already paid. */
   txSignature: string | null;
+  /**
+   * Base only: the hash of a signed stock transfer, stored before it is
+   * broadcast and kept while its outcome is unknown. Cleared when the claim is
+   * released, so a value here alongside a null txSignature is a payout to
+   * reconcile on chain.
+   */
+  pendingTxHash?: string | null;
   /** STACKD bonus signature. Null is a valid terminal state (vault paused). */
   bonusTxSignature: string | null;
   createdAt: Date;
@@ -110,8 +123,11 @@ export interface ReceiptStore {
    */
   claimLeg(receiptId: string, leg: PayoutLeg): Promise<boolean>;
 
-  /** Release a claim after a failed attempt so the user can retry. */
+  /** Release a claim after a failed attempt so the user can retry. Clears pendingTxHash. */
   releaseLeg(receiptId: string, leg: PayoutLeg): Promise<void>;
+
+  /** Store the hash of a signed stock transfer before it is broadcast (Base). */
+  recordSentTx(receiptId: string, txHash: string): Promise<void>;
 
   /** Record a landed signature and close out the claim. */
   recordPayout(receiptId: string, leg: PayoutLeg, signature: string): Promise<void>;
@@ -211,6 +227,14 @@ export class InMemoryReceiptStore implements ReceiptStore {
 
   async releaseLeg(receiptId: string, leg: PayoutLeg): Promise<void> {
     this.inFlight.delete(this.key(receiptId, leg));
+    const row = this.rows.get(receiptId);
+    if (row && leg === 'xstock') row.pendingTxHash = null;
+  }
+
+  async recordSentTx(receiptId: string, txHash: string): Promise<void> {
+    const row = this.rows.get(receiptId);
+    if (!row) throw new ReceiptNotFoundError(receiptId);
+    row.pendingTxHash = txHash;
   }
 
   async recordPayout(receiptId: string, leg: PayoutLeg, signature: string): Promise<void> {
@@ -219,6 +243,7 @@ export class InMemoryReceiptStore implements ReceiptStore {
 
     if (leg === 'xstock') {
       row.txSignature = signature;
+      row.pendingTxHash = null;
       // The xStock leg is the payout that matters; the bonus is best-effort.
       row.status = 'confirmed';
       row.confirmedAt = new Date();
@@ -269,6 +294,7 @@ export const defaultReceiptStore: ReceiptStore = {
   create: (receipt) => activeStore.create(receipt),
   claimLeg: (id, leg) => activeStore.claimLeg(id, leg),
   releaseLeg: (id, leg) => activeStore.releaseLeg(id, leg),
+  recordSentTx: (id, hash) => activeStore.recordSentTx(id, hash),
   recordPayout: (id, leg, sig) => activeStore.recordPayout(id, leg, sig),
   recordXStockAmount: (id, amount) => activeStore.recordXStockAmount(id, amount),
   hasPriorPayout: (wallet, exceptId) => activeStore.hasPriorPayout(wallet, exceptId),

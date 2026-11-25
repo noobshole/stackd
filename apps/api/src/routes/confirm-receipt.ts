@@ -8,9 +8,22 @@
  * failure there is a real error. The STACKD bonus is best effort — a null
  * signature means the vault is paused, which is a normal operating state and
  * must never surface as a failure.
+ *
+ * A receipt verified for Base is paid in its Base stock instead, by one B20
+ * transfer with a memo (packages/base). There is no $STACKD bonus on Base.
  */
 
 import { Router, type Request, type Response } from 'express';
+import {
+  B20PayoutPausedError,
+  B20PayoutUnconfirmedError,
+  B20RewardError,
+  baseStock,
+  basescanTx,
+  requireBaseNetwork,
+  sendB20Reward,
+} from '@stackd/base/server';
+import { BRAND_BY_SLUG } from '@stackd/solana';
 import {
   PayoutPausedError,
   PayoutUnconfirmedError,
@@ -20,19 +33,29 @@ import {
   sendXStockReward,
   solscanTx,
   defaultReceiptStore,
+  type ReceiptRecord,
 } from '@stackd/solana/server';
 import { BRAND_BY_TICKER, mintFor } from '@stackd/solana';
+import { underlyingUsd } from '../lib/base-stock.js';
+import type { PayoutChain } from '../lib/chains.js';
 import { getGuards } from '../lib/store/guards.js';
+import { receiptStoreFor } from '../lib/store/stores.js';
 
 /** Fractional, not a percentage — 0.02 is 2%. */
 const BONUS_RATE = Number(process.env.STACKD_BONUS_RATE ?? 0.02);
 
 export interface ConfirmResponse {
   receiptId: string;
+  chain: PayoutChain;
   xstock: {
+    /** The Solana signature, or the transaction hash on Base. */
     signature: string;
-    solscan: string;
+    /** Solana only. */
+    solscan?: string;
+    /** The transaction on the chain's explorer: Solscan or Basescan. */
+    explorer: string;
     ticker: string;
+    /** Shares sent. */
     amount: number | null;
   };
   bonus: {
@@ -75,6 +98,11 @@ async function handleConfirm(req: Request, res: Response): Promise<void> {
   const receipt = await defaultReceiptStore.get(receiptId);
   if (!receipt) {
     res.status(404).json({ error: 'That receipt was not found. Verify it again.' });
+    return;
+  }
+
+  if (receipt.chain === 'base') {
+    await confirmOnBase(receipt, res);
     return;
   }
 
@@ -173,9 +201,11 @@ async function handleConfirm(req: Request, res: Response): Promise<void> {
 
   const payload: ConfirmResponse = {
     receiptId,
+    chain: 'solana',
     xstock: {
       signature: xstockSignature,
       solscan: solscanTx(xstockSignature),
+      explorer: solscanTx(xstockSignature),
       ticker: brand.ticker,
       amount: updated?.xstockAmount ?? null,
     },
@@ -186,5 +216,91 @@ async function handleConfirm(req: Request, res: Response): Promise<void> {
     bonusFirstClaim,
   };
 
+  res.status(200).json(payload);
+}
+
+/**
+ * Pay a Base receipt: one B20 transfer of the brand's Base stock, carrying the
+ * receipt's memo and Builder Code. Same outcomes as the Solana leg: paused (the
+ * daily cap), unconfirmed (sent, outcome unknown: the claim stays held), or a
+ * refusal with nothing sent.
+ */
+async function confirmOnBase(receipt: ReceiptRecord, res: Response): Promise<void> {
+  const stock = baseStock(receipt.brandTicker);
+  const brand = stock ? BRAND_BY_SLUG[stock.slug] : undefined;
+  if (!stock || !brand) {
+    res.status(422).json({ error: `Receipt references unknown Base stock ${receipt.brandTicker}.` });
+    return;
+  }
+  if (!receipt.fingerprint) {
+    // Every receipt verified for Base has one; the memo is derived from it.
+    res.status(422).json({ error: 'That receipt cannot be paid on Base. Verify it again.' });
+    return;
+  }
+
+  let network;
+  try {
+    network = requireBaseNetwork();
+  } catch {
+    res.status(503).json({ error: 'Payouts on Base are switched off right now. Your receipt is saved.' });
+    return;
+  }
+
+  let hash: string;
+  try {
+    hash = await sendB20Reward(
+      {
+        receiptId: receipt.id,
+        recipientWallet: receipt.walletAddress,
+        stock: stock.ticker,
+        spendUsd: receipt.amountUsd,
+        pctBack: brand.pctBack,
+        fingerprint: receipt.fingerprint,
+      },
+      {
+        store: receiptStoreFor('base'),
+        budget: getGuards().budgetFor('base'),
+        fetchUnderlyingUsd: underlyingUsd,
+      },
+    );
+  } catch (error) {
+    if (error instanceof B20PayoutPausedError) {
+      res.status(503).json({ error: error.message });
+      return;
+    }
+    if (error instanceof B20PayoutUnconfirmedError) {
+      console.error('[stackd-api] Base payout unconfirmed:', error.txHash);
+      res.status(202).json({
+        error:
+          "Your payout was sent but hasn't confirmed yet. Check your wallet in a few minutes — " +
+          "there's no need to claim again.",
+        signature: error.txHash,
+        explorer: basescanTx(error.txHash, network),
+      });
+      return;
+    }
+    console.error('[stackd-api] Base payout failed:', error);
+    const message =
+      error instanceof B20RewardError
+        ? error.message
+        : 'The payout could not be completed. Nothing was sent — try again.';
+    res.status(502).json({ error: message });
+    return;
+  }
+
+  const updated = await defaultReceiptStore.get(receipt.id);
+  const payload: ConfirmResponse = {
+    receiptId: receipt.id,
+    chain: 'base',
+    xstock: {
+      signature: hash,
+      explorer: basescanTx(hash, network),
+      ticker: stock.ticker,
+      amount: updated?.xstockAmount ?? null,
+    },
+    bonus: null,
+    bonusPaused: false,
+    bonusFirstClaim: false,
+  };
   res.status(200).json(payload);
 }

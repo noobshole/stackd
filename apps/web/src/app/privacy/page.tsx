@@ -26,7 +26,7 @@ import { LegalSection, PageShell } from '@/components/layout/PageShell';
  * If any of that changes, this page has to change with it.
  */
 
-const UPDATED = '2026-11-24';
+const UPDATED = '2026-11-25';
 const CONTACT = 'https://github.com/noobshole/stackd/issues';
 
 export const metadata: Metadata = {
@@ -79,6 +79,12 @@ export default function PrivacyPage() {
             only to enforce rate limits.
           </li>
           <li>
+            <strong className="font-medium text-ink">Your approximate location:</strong> the
+            country and region our host, Vercel, works out from your IP address. We check it on each
+            submission, because Stackd can&apos;t pay out in countries and regions under US
+            sanctions, and <strong className="font-medium text-ink">we do not store it</strong>.
+          </li>
+          <li>
             <strong className="font-medium text-ink">If a brand&apos;s payouts are paused</strong>{' '}
             while we restock, your receipt is not stored and nothing is paid. We count it toward that
             brand&apos;s demand: a one-way hash of its fingerprint, the brand and the reward it would
@@ -97,7 +103,8 @@ export default function PrivacyPage() {
       <LegalSection n={2} title="Why we collect it">
         <p>
           To read your receipt, to check it is genuine and has not already been claimed, to convert
-          the total to US dollars, to send the payout, and to stop one person draining the treasury
+          the total to US dollars, to check we are allowed to pay you where you are, to send the
+          payout, and to stop one person draining the treasury
           with repeated or automated submissions. Your wallet&apos;s earlier payouts decide one more
           thing: the $STACKD bonus starts from your second paid receipt.
         </p>
@@ -167,6 +174,10 @@ export default function PrivacyPage() {
           <li>
             <strong className="font-medium text-ink">IP addresses</strong> are deleted
             automatically about a day after the submission.
+          </li>
+          <li>
+            <strong className="font-medium text-ink">Your location</strong> is checked and
+            discarded, never stored.
           </li>
           <li>
             <strong className="font-medium text-ink">Receipt images and emails</strong> are never

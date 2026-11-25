@@ -10,7 +10,13 @@
  *   email — a saved receipt email (.eml). The brand's DKIM signature proves
  *           it genuine (lib/email-receipt.ts); Claude only reads it.
  *
+ * The payout chain is the request's `chain` field: Solana by default, or Base
+ * when BASE_NETWORK is set (lib/chains.ts). The wallet address is checked for
+ * that chain, and who can be paid where is checked before anything else costs
+ * money (lib/eligibility.ts).
+ *
  * Order matters, cheapest refusal first:
+ *   0. chain, wallet, eligibility          — free
  *   1. exact re-upload (file hash)        — free, before Claude
  *      photos: file provenance (AI / editor tags) — free, before Claude
  *   2. wallet / IP / global limits        — before Claude, which costs money
@@ -20,7 +26,8 @@
  *      email: the DKIM signature, then Claude reads the verified text
  *   4. date window                         — no shoebox of old receipts, none from the future
  *   5. currency -> USD, then the USD caps
- *   6. brand match (an email's brand is its signature's)
+ *   6. brand match (an email's brand is its signature's); on Base, a brand
+ *      with a Base stock
  *   7. fingerprint: the same receipt re-photographed or re-sent, from any wallet
  *      stock: the treasury holds enough of the brand's xStock to pay it. If
  *      not, the user still sees what it is worth (paused), and the receipt
@@ -32,9 +39,13 @@ import { randomUUID } from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
 import { PublicKey } from '@solana/web3.js';
-import type { Brand } from '@stackd/solana';
-import { DuplicateReceiptError, defaultReceiptStore } from '@stackd/solana/server';
+import { baseStock, parseBaseAddress, type BaseStock } from '@stackd/base';
+import { BRANDS, type Brand } from '@stackd/solana';
+import { DuplicateReceiptError } from '@stackd/solana/server';
+import { checkBaseStock } from '../lib/base-stock.js';
+import { baseEnabled, parseChain, type PayoutChain } from '../lib/chains.js';
 import { ClaudeUnavailableError, extractEmailReceipt, extractReceipt } from '../lib/claude.js';
+import { checkEligibility, countryFrom, declaredYes, regionFrom } from '../lib/eligibility.js';
 import { emailIdentityKeys, isEmailUpload, verifyReceiptEmail } from '../lib/email-receipt.js';
 import { FxUnavailableError, UnsupportedCurrencyError, toUsd } from '../lib/fx.js';
 import { matchBrand } from '../lib/match-brand.js';
@@ -53,6 +64,7 @@ import {
 } from '../lib/receipt-checks.js';
 import { getDemand } from '../lib/store/demand.js';
 import { getGuards, limits, type LimitKind } from '../lib/store/guards.js';
+import { receiptStoreFor } from '../lib/store/stores.js';
 
 // Vercel caps a function request body at 4.5 MB, multipart overhead included.
 const MAX_BYTES = 4 * 1024 * 1024;
@@ -68,6 +80,12 @@ const MIN_CONFIDENCE = 0.7;
 const MAX_RECEIPT_USD = positiveNumberEnv('MAX_RECEIPT_USD', 1000);
 
 const DUPLICATE_REASON = 'This receipt has already been claimed.';
+
+/** The brands that can pay on Base: those with a Base stock. "Apple and Amazon". */
+const BASE_BRAND_NAMES = (() => {
+  const names = BRANDS.filter((b) => baseStock(b.slug)).map((b) => b.name);
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names.join('');
+})();
 
 class UnsupportedTypeError extends Error {}
 
@@ -87,6 +105,8 @@ const upload = multer({
 interface VerifyResponse {
   flagged: boolean;
   reason?: string;
+  /** The chain the receipt would be paid on. Absent on requests refused before it was read. */
+  chain?: PayoutChain;
   brand: string | null;
   ticker: string | null;
   amountUsd: number | null;
@@ -144,7 +164,7 @@ function rejection(reason: string, extra: Partial<VerifyResponse> = {}): VerifyR
   };
 }
 
-function isValidWallet(value: unknown): value is string {
+function isValidSolanaWallet(value: unknown): value is string {
   if (typeof value !== 'string' || value.length === 0) return false;
   try {
     new PublicKey(value);
@@ -152,6 +172,12 @@ function isValidWallet(value: unknown): value is string {
   } catch {
     return false;
   }
+}
+
+/** The wallet to pay, valid for the chain: a base58 key, or a checksummed 0x address. */
+function walletFor(chain: PayoutChain, value: unknown): string | null {
+  if (chain === 'base') return parseBaseAddress(value);
+  return isValidSolanaWallet(value) ? value : null;
 }
 
 function limitMessage(limit: LimitKind, retryAfterMs: number | null): string {
@@ -241,23 +267,50 @@ async function handleVerify(req: Request, res: Response): Promise<void> {
   // Taken before the Claude call, which can take several seconds: the date
   // window is measured from when the user submitted, not when we finished.
   const submittedAt = new Date();
-  const walletAddress = req.body?.walletAddress;
 
-  if (!isValidWallet(walletAddress)) {
-    res.status(400).json(rejection('A valid Solana wallet address is required.'));
+  // --- 0. Chain, wallet, and who can be paid there -------------------------
+  const chain = parseChain(req.body?.chain);
+  if (!chain) {
+    res.status(400).json(rejection('Choose Solana or Base for the payout.'));
     return;
   }
+  if (chain === 'base' && !baseEnabled()) {
+    res.status(400).json(rejection("Payouts on Base aren't open yet. Choose Solana for now."));
+    return;
+  }
+
+  const walletAddress = walletFor(chain, req.body?.walletAddress);
+  if (!walletAddress) {
+    res
+      .status(400)
+      .json(rejection(`A valid ${chain === 'base' ? 'Base' : 'Solana'} wallet address is required.`));
+    return;
+  }
+
+  const eligibility = checkEligibility({
+    chain,
+    country: countryFrom(req.headers['x-vercel-ip-country']),
+    region: regionFrom(req.headers['x-vercel-ip-country-region']),
+    declaredNotUsPerson: declaredYes(req.body?.notUsPerson),
+    onVercel: Boolean(process.env.VERCEL),
+  });
+  if (!eligibility.ok) {
+    res.status(403).json(rejection(eligibility.reason));
+    return;
+  }
+
   if (!req.file) {
     res.status(400).json(rejection('No receipt was uploaded.'));
     return;
   }
 
   const guards = getGuards();
+  const store = receiptStoreFor(chain);
   const isEmail = isEmailUpload(req.file);
 
   // --- 1. Exact re-upload: refuse before spending a Claude call on it ------
   const imageSha256 = sha256Hex(req.file.buffer);
-  if (await defaultReceiptStore.findDuplicate({ imageSha256 })) {
+  if (await store.findDuplicate({ imageSha256 })) {
     res.status(409).json(rejection(DUPLICATE_REASON));
     return;
   }
@@ -399,6 +452,30 @@ async function handleVerify(req: Request, res: Response): Promise<void> {
     return;
   }
 
+  // On Base, only brands with a Base stock can pay. The receipt itself is
+  // fine, so the attempt is handed back for a Solana claim instead.
+  let baseTarget: BaseStock | null = null;
+  if (chain === 'base') {
+    baseTarget = baseStock(match.brand.slug) ?? null;
+    if (!baseTarget) {
+      await guards.releaseAttempt(attempt.token);
+      res.status(200).json(
+        rejection(
+          `${match.brand.name} receipts pay out on Solana. On Base, Stackd pays ${BASE_BRAND_NAMES} receipts.`,
+          {
+            ...seen,
+            ...fx,
+            brand: match.brand.name,
+            submissionsRemaining: await guards.walletRemaining(walletAddress),
+          },
+        ),
+      );
+      return;
+    }
+  }
+  /** The token this receipt is paid in: the Base stock on Base, the xStock on Solana. */
+  const payoutTicker = baseTarget?.ticker ?? match.brand.ticker;
+
   // --- 7. Fingerprint: same receipt, different photo or file, any wallet --
   // Keyed on the printed total, not the converted USD: the rate refreshes
   // daily, so a USD key would let the same receipt through again tomorrow.
@@ -428,7 +505,7 @@ async function handleVerify(req: Request, res: Response): Promise<void> {
       ...(identity.ok ? identity.fingerprints : []),
     ]),
   ];
-  if (await defaultReceiptStore.findDuplicate({ fingerprints })) {
+  if (await store.findDuplicate({ fingerprints })) {
     res.status(409).json(rejection(DUPLICATE_REASON, { ...seen, ...fx }));
     return;
   }
@@ -443,32 +520,35 @@ async function handleVerify(req: Request, res: Response): Promise<void> {
   // handed back and nothing is stored — the same receipt can be sent again
   // once restocked. When stock cannot be read, proceed: the transfer is the
   // real check and fails with nothing sent (see lib/inventory.ts).
-  const stock = await checkPayoutStock(match.brand, cashbackUsd);
+  const stock = baseTarget
+    ? await checkBaseStock(baseTarget, cashbackUsd)
+    : await checkPayoutStock(match.brand, cashbackUsd);
   if (stock.ok === false) {
     await guards.releaseAttempt(attempt.token);
     console.warn(
-      `[stackd-api] ${match.brand.ticker} out of stock: treasury holds ` +
+      `[stackd-api] ${payoutTicker} out of stock: treasury holds ` +
         `${stock.heldShares}, payout needs ~${stock.neededShares.toFixed(8)}`,
     );
     // Counted once per receipt, as totals (lib/store/demand.ts). Bookkeeping
     // only: a failure here must not change what the user is told.
     await getDemand()
-      .record({ ticker: match.brand.ticker, cashbackUsd, keys: fingerprints })
+      .record({ ticker: payoutTicker, cashbackUsd, keys: fingerprints })
       .catch((error) => console.error('[stackd-api] paused-demand record failed:', error));
     // The receipt verified, so the user sees what it is worth; there is just
     // no receiptId to claim with. flagged stays true for any older client, and
     // 200 because the request itself succeeded: the pause is in the body.
     res.status(200).json(
       rejection(
-        `Payouts in ${match.brand.ticker} are paused while we restock. Your receipt wasn't ` +
+        `Payouts in ${payoutTicker} are paused while we restock. Your receipt wasn't ` +
           'used up — send it again once they reopen.',
         {
           ...seen,
           ...fx,
+          chain,
           paused: true,
           resendBy: lastDayInWindow(dated.date),
           brand: match.brand.name,
-          ticker: match.brand.ticker,
+          ticker: payoutTicker,
           amountUsd,
           pctBack: match.brand.pctBack,
           cashbackUsd,
@@ -481,7 +561,7 @@ async function handleVerify(req: Request, res: Response): Promise<void> {
     return;
   }
   if (stock.ok === null) {
-    console.warn(`[stackd-api] stock check skipped for ${match.brand.ticker}: ${stock.reason}`);
+    console.warn(`[stackd-api] stock check skipped for ${payoutTicker}: ${stock.reason}`);
   }
 
   // --- 8. Accepted: persist before responding -----------------------------
@@ -490,11 +570,12 @@ async function handleVerify(req: Request, res: Response): Promise<void> {
   // of one receipt racing each other cannot both land.
   const receiptId = randomUUID();
   try {
-    await defaultReceiptStore.create({
+    await store.create({
       id: receiptId,
+      chain,
       walletAddress,
       brandName: match.brand.name,
-      brandTicker: match.brand.ticker,
+      brandTicker: payoutTicker,
       // The payout is computed from this, so it is the eligible amount; the full
       // total stays on record as originalAmount at fxRate.
       amountUsd: eligibleUsd,
@@ -524,9 +605,10 @@ async function handleVerify(req: Request, res: Response): Promise<void> {
 
   const response: VerifyResponse = {
     flagged: false,
+    chain,
     receiptId,
     brand: match.brand.name,
-    ticker: match.brand.ticker,
+    ticker: payoutTicker,
     amountUsd,
     pctBack: match.brand.pctBack,
     cashbackUsd,

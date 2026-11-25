@@ -3,6 +3,8 @@ import express from 'express';
 import cors from 'cors';
 import { BRANDS, getCluster } from '@stackd/solana';
 import { useReceiptStore } from '@stackd/solana/server';
+import { getBaseNetwork } from '@stackd/base';
+import { getBaseTreasury } from '@stackd/base/server';
 import { verifyReceiptRouter } from './routes/verify-receipt.js';
 import { confirmReceiptRouter } from './routes/confirm-receipt.js';
 import { healthTreasuryRouter } from './routes/health-treasury.js';
@@ -12,19 +14,22 @@ import { getPool, hasDatabase } from './lib/store/db.js';
 import { getGuards, limits } from './lib/store/guards.js';
 import { PgReceiptStore } from './lib/store/pg-receipt-store.js';
 
-// Throws on a mistyped SOLANA_CLUSTER, which is the point: fail at boot.
+// Both throw on a mistyped value, which is the point: fail at boot.
 const cluster = getCluster();
+/** Null when Base payouts are off (BASE_NETWORK unset). */
+const baseNetwork = getBaseNetwork();
 
 /**
  * Storage. In-memory state loses the duplicate history, the rate limits, the
- * payout budget and every payout record on restart — survivable on devnet,
- * not with real money. So mainnet refuses to start without a database.
+ * payout budget and every payout record on restart — survivable on a test
+ * network, not with real money. So mainnet, on either chain, refuses to start
+ * without a database.
  */
 if (hasDatabase()) {
   useReceiptStore(new PgReceiptStore());
-} else if (cluster === 'mainnet') {
+} else if (cluster === 'mainnet' || baseNetwork === 'mainnet') {
   console.error(
-    '[stackd-api] Refusing to start: SOLANA_CLUSTER is mainnet but DATABASE_URL is not set.\n' +
+    '[stackd-api] Refusing to start: payouts are on mainnet but DATABASE_URL is not set.\n' +
       '  In-memory storage forgets paid receipts on restart, which lets them be claimed again.',
   );
   process.exit(1);
@@ -63,6 +68,7 @@ app.get('/health', (_req, res) => {
   res.json({
     ok: true,
     cluster,
+    base: baseNetwork ?? 'off',
     model: RECEIPT_MODEL,
     claudeVia: VIA_OPENROUTER ? 'openrouter' : 'anthropic',
     // Surfaced so a misconfigured deploy is obvious without reading logs.
@@ -83,7 +89,7 @@ app.get('/health', (_req, res) => {
 let dbCheck = { at: 0, ok: false };
 app.get('/health/ready', async (_req, res) => {
   if (!hasDatabase()) {
-    const ok = cluster !== 'mainnet';
+    const ok = cluster !== 'mainnet' && baseNetwork !== 'mainnet';
     res.status(ok ? 200 : 503).json({ ok, database: 'none' });
     return;
   }
@@ -136,6 +142,27 @@ function logConfig(): void {
     `[stackd-api] limits: ${limits.walletPerDay}/wallet/day, ${limits.ipPerHour}/IP/hour, ` +
       `${limits.globalPerHour}/hour total, payouts capped at $${limits.dailyPayoutCapUsd}/day`,
   );
+
+  if (baseNetwork) {
+    console.log(
+      `[stackd-api] base payouts: ${baseNetwork.toUpperCase()}, capped at $${limits.baseDailyPayoutCapUsd}/day`,
+    );
+    // Checked here so a missing secret shows in the first log lines, not at
+    // the first payout. Names only: never a value.
+    try {
+      getBaseTreasury();
+    } catch (error) {
+      console.warn(`[stackd-api] WARNING: Base treasury not usable: ${(error as Error).message}`);
+    }
+    if (baseNetwork === 'mainnet' && !process.env.BASE_RPC_URL?.trim()) {
+      console.warn('[stackd-api] WARNING: BASE_RPC_URL is not set — Base mainnet payouts will refuse.');
+    }
+    if ((process.env.BASE_MEMO_SECRET?.trim().length ?? 0) < 32) {
+      console.warn('[stackd-api] WARNING: BASE_MEMO_SECRET is missing or short — Base payouts will refuse.');
+    }
+  } else {
+    console.log('[stackd-api] base payouts: off');
+  }
 
   if (!claudeConfigured()) {
     console.warn(

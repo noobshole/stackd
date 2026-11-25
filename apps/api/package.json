@@ -12,12 +12,13 @@
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "build": "node build.mjs",
-    "test": "node --import tsx --test src/lib/fx.test.ts src/lib/receipt-checks.test.ts src/lib/email-receipt.test.ts src/lib/provenance.test.ts src/lib/inventory.test.ts src/lib/store/guards.test.ts src/lib/store/demand.test.ts",
+    "test": "node --import tsx --test src/lib/fx.test.ts src/lib/receipt-checks.test.ts src/lib/email-receipt.test.ts src/lib/provenance.test.ts src/lib/inventory.test.ts src/lib/store/guards.test.ts src/lib/store/demand.test.ts src/lib/store/stores.test.ts src/lib/chains.test.ts src/lib/eligibility.test.ts src/lib/base-stock.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.126.0",
     "@solana/web3.js": "^1.95.4",
+    "@stackd/base": "*",
     "@stackd/solana": "*",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
@@ -25,7 +26,9 @@
     "mailauth": "^8.1.0",
     "mailparser": "^3.9.36",
     "multer": "^2.5.0",
+    "ox": "0.14.65",
     "pg": "^8.23.0",
+    "viem": "2.57.18",
     "zod": "^3.25.76"
   },
   "devDependencies": {

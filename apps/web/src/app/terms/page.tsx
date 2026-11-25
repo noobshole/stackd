@@ -14,7 +14,7 @@ import { LegalSection, PageShell } from '@/components/layout/PageShell';
  * rather than guessed at.
  */
 
-const UPDATED = '2026-11-24';
+const UPDATED = '2026-11-25';
 const CONTACT = 'https://github.com/noobshole/stackd/issues';
 
 export const metadata: Metadata = {
@@ -64,6 +64,11 @@ export default function TermsPage() {
           You must be at least 18 and legally able to hold tokenized securities where you live.
           Complying with your local law is your responsibility, not ours. You must use your own
           wallet and submit only your own receipts.
+        </p>
+        <p>
+          Stackd doesn&apos;t pay out in some countries and regions, including those under
+          comprehensive US sanctions, and refuses receipts sent from them, judged by the location
+          of your IP address.
         </p>
       </LegalSection>
 

@@ -6,6 +6,11 @@
  *   - duplicates: a unique index on image_sha256, and a primary key on every
  *     fingerprint in stackd.receipt_fingerprints (one row per identity key)
  *   - exactly-once payout legs: claimLeg is a single conditional UPDATE
+ *
+ * Duplicates are checked across chains: a receipt paid on Solana cannot be
+ * paid again on Base. The `cluster` column is the scope that separates real
+ * money from test runs ('mainnet' on either chain, 'devnet' for Solana devnet
+ * and Base Sepolia), and `chain` records where the receipt is paid.
  */
 
 import {
@@ -15,6 +20,7 @@ import {
   getCluster,
   type Cluster,
   type DuplicateKind,
+  type PayoutChain,
   type PayoutLeg,
   type ReceiptRecord,
   type ReceiptStore,
@@ -25,6 +31,7 @@ type NewReceipt = Parameters<ReceiptStore['create']>[0];
 
 interface Row {
   id: string;
+  chain: PayoutChain;
   wallet_address: string;
   brand_name: string;
   brand_ticker: string;
@@ -38,6 +45,7 @@ interface Row {
   claude_confidence: number | null;
   status: ReceiptRecord['status'];
   tx_signature: string | null;
+  pending_tx_hash: string | null;
   bonus_tx_signature: string | null;
   created_at: Date;
   confirmed_at: Date | null;
@@ -53,6 +61,7 @@ const num = (v: string | null) => (v == null ? undefined : Number(v));
 function toRecord(r: Row): ReceiptRecord {
   return {
     id: r.id,
+    chain: r.chain,
     walletAddress: r.wallet_address,
     brandName: r.brand_name,
     brandTicker: r.brand_ticker,
@@ -66,6 +75,7 @@ function toRecord(r: Row): ReceiptRecord {
     claudeConfidence: r.claude_confidence,
     status: r.status,
     txSignature: r.tx_signature,
+    pendingTxHash: r.pending_tx_hash,
     bonusTxSignature: r.bonus_tx_signature,
     createdAt: r.created_at,
     confirmedAt: r.confirmed_at,
@@ -80,7 +90,8 @@ function toRecord(r: Row): ReceiptRecord {
 /**
  * Scoped to one cluster. Devnet and mainnet share the database, and the
  * duplicate check must not reach across: the receipt used in a devnet test run
- * has to stay claimable on mainnet.
+ * has to stay claimable on mainnet. Within a cluster it does reach across
+ * chains (see the top of this file).
  */
 export class PgReceiptStore implements ReceiptStore {
   constructor(private readonly cluster: Cluster = getCluster()) {}
@@ -123,8 +134,8 @@ export class PgReceiptStore implements ReceiptStore {
            id, wallet_address, brand_name, brand_ticker, amount_usd,
            original_amount, original_currency, fx_rate, fx_rate_date,
            xstock_amount, image_url, claude_confidence,
-           image_sha256, fingerprint, receipt_date, receipt_number, cluster, receipt_time
-         ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+           image_sha256, fingerprint, receipt_date, receipt_number, cluster, receipt_time, chain
+         ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
          returning *`,
         [
           receipt.id,
@@ -145,6 +156,7 @@ export class PgReceiptStore implements ReceiptStore {
           receipt.receiptNumber ?? null,
           this.cluster,
           receipt.receiptTime ?? null,
+          receipt.chain ?? 'solana',
         ],
       );
       const keys = fingerprintKeys(receipt);
@@ -187,17 +199,28 @@ export class PgReceiptStore implements ReceiptStore {
   }
 
   async releaseLeg(receiptId: string, leg: PayoutLeg): Promise<void> {
-    const column = leg === 'xstock' ? 'xstock_in_flight' : 'bonus_in_flight';
-    await getPool().query(`update stackd.receipts set ${column} = false where id = $1`, [
-      receiptId,
-    ]);
+    const sql =
+      leg === 'xstock'
+        ? 'update stackd.receipts set xstock_in_flight = false, pending_tx_hash = null where id = $1'
+        : 'update stackd.receipts set bonus_in_flight = false where id = $1';
+    await getPool().query(sql, [receiptId]);
+  }
+
+  /** Only while a claim is held, so a caller that lost its claim cannot overwrite the hash. */
+  async recordSentTx(receiptId: string, txHash: string): Promise<void> {
+    const { rowCount } = await getPool().query(
+      `update stackd.receipts set pending_tx_hash = $2
+        where id = $1 and xstock_in_flight and tx_signature is null`,
+      [receiptId, txHash],
+    );
+    if (!rowCount) throw new ReceiptNotFoundError(receiptId);
   }
 
   async recordPayout(receiptId: string, leg: PayoutLeg, signature: string): Promise<void> {
     const sql =
       leg === 'xstock'
         ? `update stackd.receipts
-              set tx_signature = $2, xstock_in_flight = false,
+              set tx_signature = $2, xstock_in_flight = false, pending_tx_hash = null,
                   status = 'confirmed', confirmed_at = now()
             where id = $1`
         : `update stackd.receipts

@@ -88,4 +88,13 @@ describe('test_daily_payout_cap', () => {
     await g.budget.release(4);
     assert.equal((await g.budget.status()).usedUsd, 0);
   });
+
+  it('keeps a separate cap per chain, since each pays from its own treasury', async () => {
+    const g = new MemoryGuards(clock().now);
+    assert.equal(await g.budgetFor('solana').reserve(limits.dailyPayoutCapUsd), true);
+    assert.equal(await g.budget.reserve(0.01), false, 'Solana is at its cap');
+    assert.equal(await g.budgetFor('base').reserve(1), true, 'Base still has its own room');
+    assert.equal((await g.budgetFor('base').status()).usedUsd, 1);
+    assert.equal((await g.budgetFor('base').status()).capUsd, limits.baseDailyPayoutCapUsd);
+  });
 });
