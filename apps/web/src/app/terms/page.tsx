@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { MAX_PCT_BACK } from '@stackd/solana';
 import { LegalSection, PageShell } from '@/components/layout/PageShell';
+import { BASE_BRAND_NAMES } from '@/lib/base-brands';
 
 /**
  * Plain-language terms describing what the code actually does: every limit
@@ -14,7 +15,7 @@ import { LegalSection, PageShell } from '@/components/layout/PageShell';
  * rather than guessed at.
  */
 
-const UPDATED = '2026-11-25';
+const UPDATED = '2026-11-26';
 const CONTACT = 'https://github.com/noobshole/stackd/issues';
 
 export const metadata: Metadata = {
@@ -36,8 +37,13 @@ export default function TermsPage() {
           genuine. You can also upload the receipt email the brand sent you, as the original .eml
           file: then the brand&apos;s own email signature (DKIM) proves it genuine, and Claude only
           reads it. If it passes, Stackd transfers tokenized shares of that brand from its treasury
-          to the Solana address you provided — up to {MAX_PCT_BACK}% of the receipt total,
+          to the Solana or Base address you provided — up to {MAX_PCT_BACK}% of the receipt total,
           depending on the brand.
+        </p>
+        <p>
+          On Base, Stackd pays {BASE_BRAND_NAMES} receipts, in Coinbase Tokenized Stocks. Other
+          brands pay on Solana. A receipt is paid on one chain only: you choose which before you
+          send it.
         </p>
         <p>
           Stackd never holds your tokens. They go straight to your wallet, and only you can move
@@ -49,9 +55,10 @@ export default function TermsPage() {
         <p>
           Stackd is not a broker, dealer, exchange, bank or investment adviser, and nothing here is
           investment advice or a recommendation to buy or hold anything. The tokenized shares are
-          issued by third parties — Backed Finance and Backpack Securities — under their own terms,
-          and their availability may be restricted where you live. Check their terms before you
-          use Stackd.
+          issued by third parties — on Solana Backed Finance and Backpack Securities, on Base
+          Coinbase — under their own terms, and their availability may be restricted where you
+          live. Coinbase Tokenized Stocks are offered only in eligible jurisdictions outside the
+          US. Check the issuer&apos;s terms before you use Stackd.
         </p>
         <p>
           Tokenized equities carry risk, including the loss of the full value of the token. Prices
@@ -69,6 +76,11 @@ export default function TermsPage() {
           Stackd doesn&apos;t pay out in some countries and regions, including those under
           comprehensive US sanctions, and refuses receipts sent from them, judged by the location
           of your IP address.
+        </p>
+        <p>
+          Payouts on Base are not available to US persons. To be paid on Base you must confirm
+          you&apos;re not one, and receipts sent from the US are refused for Base. Confirming
+          falsely breaks these terms.
         </p>
       </LegalSection>
 
@@ -92,7 +104,8 @@ export default function TermsPage() {
           </li>
           <li>Three receipts per wallet per 24 hours.</li>
           <li>
-            Each receipt can be claimed once, ever, by anyone. We identify a receipt by its
+            Each receipt can be claimed once, ever, by anyone, on either chain. We identify a
+            receipt by its
             merchant, date, total, transaction number and time of purchase, and by a
             fingerprint of the image. An online order counts once per order number, however many
             emails or screenshots show it, and a receipt email is also identified by its
@@ -103,8 +116,9 @@ export default function TermsPage() {
             Upload the original photo or screenshot.
           </li>
           <li>
-            Stackd applies a daily cap on total payouts. When it is reached, claims pause until the
-            next day; your verified receipt stays claimable.
+            Stackd applies a daily cap on total payouts, separately on each chain. When it is
+            reached, claims on that chain pause until the next day; your verified receipt stays
+            claimable.
           </li>
           <li>
             When the treasury holds none of a brand&apos;s stock, payouts in it are paused. A
@@ -119,9 +133,10 @@ export default function TermsPage() {
           </li>
           <li>
             The number of shares depends on the share price at the moment of payout, so the figure
-            you are shown before claiming is an estimate. Where the on-chain market price and the
-            listed share price differ, the higher of the two is used. If they differ by too much to
-            trust either, the payout waits and your receipt stays claimable.
+            you are shown before claiming is an estimate. The price is checked against two
+            sources: on Solana the on-chain market price, on Base a Chainlink price feed, each
+            against the listed share price. Where they differ, the higher is used. If they differ
+            by too much to trust either, the payout waits and your receipt stays claimable.
           </li>
         </ul>
         <p>
@@ -132,7 +147,7 @@ export default function TermsPage() {
 
       <LegalSection n={5} title="The $STACKD bonus">
         <p>
-          Some payouts include a bonus in $STACKD, a token launched on Meteora&apos;s Dynamic
+          Some Solana payouts include a bonus in $STACKD, a token launched on Meteora&apos;s Dynamic
           Bonding Curve with a fixed supply of one billion and no mint authority, meaning no more
           can ever be created. It starts from your second paid receipt, not your first. The bonus
           is optional and often paused — the reward that matters is the tokenized share, and a
@@ -160,8 +175,8 @@ export default function TermsPage() {
 
       <LegalSection n={7} title="Blockchain transfers are final">
         <p>
-          Payouts are Solana transactions. Once one is confirmed it cannot be reversed by us or by
-          anyone else. If you give an address you do not control, or an exchange deposit address
+          Payouts are Solana or Base transactions. Once one is confirmed it cannot be reversed by
+          us or by anyone else. If you give an address you do not control, or an exchange deposit address
           that does not support these tokens, the tokens are gone and we cannot recover them.
         </p>
         <p>
@@ -181,9 +196,10 @@ export default function TermsPage() {
 
       <LegalSection n={9} title="Services we rely on">
         <p>
-          Verification uses Anthropic&apos;s Claude API. Blockchain reads and writes go through
-          Helius. Prices come from Jupiter, exchange rates from the European Central Bank via
-          Frankfurter, hosting from Vercel, and the database from Supabase. Their outages are
+          Verification uses Anthropic&apos;s Claude API. Solana reads and writes go through
+          Helius, and Base ones through an RPC provider. Prices come from Jupiter and, on Base,
+          Chainlink price feeds; exchange rates from the European Central Bank via Frankfurter;
+          hosting from Vercel; and the database from Supabase. Their outages are
           outside our control. What each one receives is set out in the{' '}
           <Link href="/privacy" className="text-primary hover:underline">
             privacy policy

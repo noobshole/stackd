@@ -22,11 +22,21 @@ import { LegalSection, PageShell } from '@/components/layout/PageShell';
  *     stored either: stackd.paused_demand keeps hashes of its duplicate keys,
  *     its brand and the reward it would have paid, with no wallet or IP
  *     (apps/api/src/lib/store/demand.ts)
+ *   - the approximate location (Vercel's IP country and region headers) and
+ *     the Base not-a-US-person declaration are checked per request and never
+ *     stored (apps/api/src/lib/eligibility.ts)
+ *   - a receipt record keeps the chain it is paid on; a Base payout's memo is
+ *     an HMAC of the receipt fingerprint (packages/base/src/memo.ts), public
+ *     on Base and meaningless without the secret
+ *   - connecting a Base wallet only asks it for its address
+ *     (eth_requestAccounts, components/submit/BaseWallet.tsx); nothing is
+ *     signed, and the browser keeps only which wallet it was (localStorage
+ *     "stackd:base-wallet"), to reconnect
  *   - no analytics, no tracking cookies anywhere in apps/web
  * If any of that changes, this page has to change with it.
  */
 
-const UPDATED = '2026-11-25';
+const UPDATED = '2026-11-26';
 const CONTACT = 'https://github.com/noobshole/stackd/issues';
 
 export const metadata: Metadata = {
@@ -44,8 +54,9 @@ export default function PrivacyPage() {
       <LegalSection n={1} title="What we collect">
         <ul className="list-disc space-y-1.5 pl-5">
           <li>
-            <strong className="font-medium text-ink">The wallet address you submit.</strong> Needed
-            to send the payout.
+            <strong className="font-medium text-ink">The wallet address you submit,</strong> on
+            Solana or Base. Needed to send the payout. Connecting a wallet shares only its address
+            with the site: you never sign anything to be paid.
           </li>
           <li>
             <strong className="font-medium text-ink">The receipt image.</strong> It is sent to
@@ -72,7 +83,7 @@ export default function PrivacyPage() {
           </li>
           <li>
             <strong className="font-medium text-ink">The payout record:</strong> the amount, the
-            exchange rate used, and the Solana transaction signatures.
+            exchange rate used, the chain it was paid on, and the transaction signatures or hashes.
           </li>
           <li>
             <strong className="font-medium text-ink">Your IP address and a timestamp,</strong> used
@@ -82,7 +93,13 @@ export default function PrivacyPage() {
             <strong className="font-medium text-ink">Your approximate location:</strong> the
             country and region our host, Vercel, works out from your IP address. We check it on each
             submission, because Stackd can&apos;t pay out in countries and regions under US
-            sanctions, and <strong className="font-medium text-ink">we do not store it</strong>.
+            sanctions, or on Base in the US, and{' '}
+            <strong className="font-medium text-ink">we do not store it</strong>.
+          </li>
+          <li>
+            <strong className="font-medium text-ink">If you&apos;re paid on Base,</strong> your
+            confirmation that you&apos;re not a US person. It&apos;s checked with that submission and{' '}
+            <strong className="font-medium text-ink">not stored</strong>.
           </li>
           <li>
             <strong className="font-medium text-ink">If a brand&apos;s payouts are paused</strong>{' '}
@@ -131,7 +148,8 @@ export default function PrivacyPage() {
           </li>
           <li>
             <strong className="font-medium text-ink">Helius</strong> relays our Solana requests, so
-            it sees the addresses being looked up.
+            it sees the addresses being looked up. The service we use to reach{' '}
+            <strong className="font-medium text-ink">Base</strong> does the same for Base payouts.
           </li>
           <li>
             <strong className="font-medium text-ink">Vercel</strong> hosts the site, and runs the
@@ -144,18 +162,25 @@ export default function PrivacyPage() {
             store, never you.
           </li>
           <li>
-            <strong className="font-medium text-ink">Jupiter</strong> and the{' '}
+            <strong className="font-medium text-ink">Jupiter</strong>,{' '}
+            <strong className="font-medium text-ink">Chainlink</strong>&apos;s price feeds on Base
+            and the{' '}
             <strong className="font-medium text-ink">European Central Bank (via Frankfurter)</strong>{' '}
-            provide prices and exchange rates. Neither receives anything about you.
+            provide prices and exchange rates. None of them receives anything about you.
           </li>
         </ul>
       </LegalSection>
 
-      <LegalSection n={4} title="Solana is public and permanent">
+      <LegalSection n={4} title="Blockchains are public and permanent">
         <p>
-          Your payout is a public blockchain transaction. Your wallet address, the token, the
-          amount and the time are visible to anyone, forever, and cannot be deleted or hidden by
-          us or by you. Anyone who knows your address can also see everything else it holds.
+          Your payout is a public transaction on Solana or Base. Your wallet address, the token,
+          the amount and the time are visible to anyone, forever, and cannot be deleted or hidden
+          by us or by you. Anyone who knows your address can also see everything else it holds.
+        </p>
+        <p>
+          A payout on Base also carries a short code in its memo: a keyed hash of the receipt, so
+          anyone can see that no receipt was paid twice. Without our secret key it reveals nothing
+          about what you bought.
         </p>
         <p>If that matters to you, use a separate wallet address for Stackd.</p>
       </LegalSection>
@@ -176,8 +201,8 @@ export default function PrivacyPage() {
             automatically about a day after the submission.
           </li>
           <li>
-            <strong className="font-medium text-ink">Your location</strong> is checked and
-            discarded, never stored.
+            <strong className="font-medium text-ink">Your location</strong>, and on Base your
+            not-a-US-person confirmation, are checked and discarded, never stored.
           </li>
           <li>
             <strong className="font-medium text-ink">Receipt images and emails</strong> are never
@@ -188,9 +213,9 @@ export default function PrivacyPage() {
 
       <LegalSection n={6} title="Cookies and tracking">
         <p>
-          Stackd sets no cookies, runs no analytics and embeds no third-party trackers. Your wallet
-          software may store your choice of wallet in your own browser so it can reconnect. That
-          stays on your device.
+          Stackd sets no cookies, runs no analytics and embeds no third-party trackers. Your
+          browser remembers which wallet you connected, so it can reconnect next time. That stays
+          on your device.
         </p>
       </LegalSection>
 

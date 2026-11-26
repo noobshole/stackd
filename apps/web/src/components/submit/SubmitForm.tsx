@@ -1,18 +1,32 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { BRANDS, BRAND_BY_TICKER } from '@stackd/solana';
+import { BRANDS, BRAND_BY_SLUG, BRAND_BY_TICKER, type Brand } from '@stackd/solana';
+import { baseStock, parseBaseAddress } from '@stackd/base/web';
 import { useXStockPrices } from '@/hooks/useXStockData';
+import { useBaseNetwork } from '@/hooks/useBaseNetwork';
 import {
   confirmReceipt,
+  PayoutPendingError,
   verifyReceipt,
   type ConfirmResponse,
+  type PayoutChain,
   type VerifyResponse,
 } from '@/lib/verify';
 import { ConnectPrompt } from '@/components/ui/ConnectPrompt';
 import { BrandMark, SectionHeader } from '@/components/ui/primitives';
+import { PayoutDestination } from '@/components/submit/PayoutDestination';
+import { BASE_BRANDS, BASE_BRAND_NAMES } from '@/lib/base-brands';
 import { formatMoney, formatTokenAmount, formatUsd } from '@/lib/format';
+
+/** The brand behind a result: its Solana xStock ticker, or its Base stock's. */
+function brandOf(ticker: string | null | undefined): Brand | undefined {
+  if (!ticker) return undefined;
+  const stock = baseStock(ticker);
+  return BRAND_BY_TICKER[ticker] ?? (stock ? BRAND_BY_SLUG[stock.slug] : undefined);
+}
 
 // The API refuses anything bigger (its host caps a request at 4.5 MB).
 const MAX_BYTES = 4 * 1024 * 1024;
@@ -51,6 +65,17 @@ const EMAIL_PHASES = [
 export function SubmitForm() {
   const { publicKey } = useWallet();
   const { data: prices } = useXStockPrices();
+  const { network: baseNetwork } = useBaseNetwork();
+  const params = useSearchParams();
+
+  // ?chain=base preselects Base; it only takes effect while the API pays on Base.
+  const [chainChoice, setChainChoice] = useState<PayoutChain>(
+    params.get('chain') === 'base' ? 'base' : 'solana',
+  );
+  const chain: PayoutChain = baseNetwork ? chainChoice : 'solana';
+  const [baseInput, setBaseInput] = useState('');
+  const [notUsPerson, setNotUsPerson] = useState(false);
+  const baseAddress = chain === 'base' ? parseBaseAddress(baseInput) : null;
 
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -63,6 +88,7 @@ export function SubmitForm() {
   const [claim, setClaim] = useState<ConfirmResponse | null>(null);
   const [claiming, setClaiming] = useState(false);
   const [claimError, setClaimError] = useState<string | null>(null);
+  const [pending, setPending] = useState<PayoutPendingError | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const isEmail = file ? isEmailFile(file) : false;
   const phases = isEmail ? EMAIL_PHASES : PHOTO_PHASES;
@@ -88,14 +114,38 @@ export function SubmitForm() {
     return () => window.clearInterval(id);
   }, [stage, phases.length]);
 
-  if (!publicKey) {
+  const busy = stage === 'verifying';
+
+  // The chain can't change under a result: a verified receipt is claimable
+  // only on the chain it was checked for.
+  const destination = baseNetwork && (
+    <PayoutDestination
+      chain={chain}
+      onChain={setChainChoice}
+      network={baseNetwork}
+      locked={busy || stage === 'result'}
+      baseInput={baseInput}
+      onBaseInput={setBaseInput}
+      notUsPerson={notUsPerson}
+      onNotUsPerson={setNotUsPerson}
+    />
+  );
+
+  if (chain === 'solana' && !publicKey) {
     return (
       <>
         <SectionHeader
           title="Submit a receipt"
           description="Upload a receipt and get the brand's tokenized shares sent to your wallet."
         />
-        <ConnectPrompt body="Cashback is paid straight to your Solana address, so Stackd needs a wallet connected before you can submit a receipt." />
+        {destination && <div className="mb-4 max-w-xl">{destination}</div>}
+        <ConnectPrompt
+          body={
+            baseNetwork
+              ? 'Cashback on Solana is paid straight to your Solana address, so connect a wallet first. Or choose Base above and paste a Base address.'
+              : 'Cashback is paid straight to your Solana address, so Stackd needs a wallet connected before you can submit a receipt.'
+          }
+        />
       </>
     );
   }
@@ -118,15 +168,22 @@ export function SubmitForm() {
     setFile(next);
   }
 
+  const wallet = chain === 'base' ? baseAddress : (publicKey?.toBase58() ?? null);
+  const ready = Boolean(file && wallet && (chain === 'solana' || notUsPerson));
+
   async function submit() {
-    if (!file || !publicKey) return;
+    if (!file || !wallet || !ready) return;
 
     setStage('verifying');
     setRequestError(null);
     setResult(null);
 
     try {
-      const response = await verifyReceipt(file, publicKey.toBase58());
+      const response = await verifyReceipt(
+        file,
+        wallet,
+        chain === 'base' ? { chain, notUsPerson } : {},
+      );
       setResult(response);
       setStage('result');
     } catch (error) {
@@ -143,7 +200,8 @@ export function SubmitForm() {
     try {
       setClaim(await confirmReceipt(result.receiptId));
     } catch (error) {
-      setClaimError(error instanceof Error ? error.message : 'Payout failed.');
+      if (error instanceof PayoutPendingError) setPending(error);
+      else setClaimError(error instanceof Error ? error.message : 'Payout failed.');
     } finally {
       setClaiming(false);
     }
@@ -156,17 +214,19 @@ export function SubmitForm() {
     setFileError(null);
     setClaim(null);
     setClaimError(null);
+    setPending(null);
     setClaiming(false);
     setStage('idle');
   }
 
   // Convert the USD cashback into a share count using the live Jupiter price.
-  const brand = result?.ticker ? BRAND_BY_TICKER[result.ticker] : undefined;
+  // Solana only: a Base stock's token price carries its own multiplier, so the
+  // count there is worked out by the API at payout.
+  const resultChain: PayoutChain = result?.chain ?? chain;
+  const brand = resultChain === 'solana' ? brandOf(result?.ticker) : undefined;
   const price = brand ? (prices?.[brand.mint]?.usd ?? null) : null;
   const shares =
     result?.cashbackUsd != null && price ? result.cashbackUsd / price : null;
-
-  const busy = stage === 'verifying';
 
   return (
     <>
@@ -178,6 +238,8 @@ export function SubmitForm() {
       <div className="grid gap-4 lg:grid-cols-[1.15fr_1fr]">
         {/* --- Upload --- */}
         <div className="space-y-4">
+          {destination}
+
           <section className="card p-5">
             <h2 className="text-sm font-medium text-ink">Your receipt</h2>
             <p className="mt-1 text-xs leading-relaxed text-ink-muted">
@@ -294,14 +356,27 @@ export function SubmitForm() {
           </section>
 
           <section className="card p-5">
-            <h2 className="text-sm font-medium text-ink">Supported brands</h2>
+            <h2 className="text-sm font-medium text-ink">
+              {chain === 'base' ? 'Brands paid on Base' : 'Supported brands'}
+            </h2>
+            {chain === 'base' && (
+              <p className="mt-1 text-xs leading-relaxed text-ink-muted">
+                On Base, Stackd pays {BASE_BRAND_NAMES} receipts in Coinbase Tokenized Stocks. Other
+                brands pay on Solana.
+              </p>
+            )}
             <ul className="mt-3 grid grid-cols-2 gap-2">
-              {BRANDS.map((b) => (
+              {(chain === 'base'
+                ? BASE_BRANDS
+                : BRANDS.map((b) => ({ brand: b, ticker: null }))
+              ).map(({ brand: b, ticker }) => (
                 <li key={b.slug} className="flex items-center gap-2.5 rounded-lg bg-sunken px-3 py-2">
                   <BrandMark brand={b} size={26} />
                   <span className="min-w-0">
                     <span className="block truncate text-xs text-ink">{b.name}</span>
-                    <span className="num block text-2xs text-ink-muted">{b.pctBack}% back</span>
+                    <span className="num block text-2xs text-ink-muted">
+                      {b.pctBack}% back{ticker ? ` · ${ticker}` : ''}
+                    </span>
                   </span>
                 </li>
               ))}
@@ -325,11 +400,18 @@ export function SubmitForm() {
                 <button
                   type="button"
                   onClick={submit}
-                  disabled={!file}
+                  disabled={!ready}
                   className="btn-primary mt-5 w-full"
                 >
                   Verify receipt
                 </button>
+                {chain === 'base' && !(baseAddress && notUsPerson) && (
+                  <p className="mt-2.5 text-center text-2xs leading-relaxed text-ink-muted">
+                    {baseAddress
+                      ? "Confirm you're not a US person to be paid on Base."
+                      : "Add the Base address to pay, then confirm you're not a US person."}
+                  </p>
+                )}
                 <p className="mt-3 text-center text-2xs leading-relaxed text-ink-subtle">
                   3 receipts per wallet per day. Duplicates are rejected.
                 </p>
@@ -339,11 +421,13 @@ export function SubmitForm() {
             {stage === 'result' && result && (
               <Result
                 result={result}
+                chain={resultChain}
                 shares={shares}
                 priceKnown={price != null}
                 claim={claim}
                 claiming={claiming}
                 claimError={claimError}
+                pending={pending}
                 onClaim={claimReward}
                 onReset={reset}
               />
@@ -401,24 +485,28 @@ function Verifying({ phases, phase }: { phases: string[]; phase: number }) {
 
 function Result({
   result,
+  chain,
   shares,
   priceKnown,
   claim,
   claiming,
   claimError,
+  pending,
   onClaim,
   onReset,
 }: {
   result: VerifyResponse;
+  chain: PayoutChain;
   shares: number | null;
   priceKnown: boolean;
   claim: ConfirmResponse | null;
   claiming: boolean;
   claimError: string | null;
+  pending: PayoutPendingError | null;
   onClaim: () => void;
   onReset: () => void;
 }) {
-  const brand = result.ticker ? BRAND_BY_TICKER[result.ticker] : undefined;
+  const brand = brandOf(result.ticker);
   const converted =
     result.currency != null && result.currency !== 'USD' && result.originalAmount != null;
 
@@ -456,11 +544,22 @@ function Result({
           <div className="flex items-baseline justify-between gap-3">
             <dt className="text-ink-muted">{result.ticker} to you</dt>
             <dd className="text-base font-medium text-ink">
-              {shares != null ? formatTokenAmount(shares) : '—'}
+              {chain === 'base'
+                ? `${formatUsd(result.cashbackUsd)} worth`
+                : shares != null
+                  ? formatTokenAmount(shares)
+                  : '—'}
             </dd>
           </div>
         </div>
       </dl>
+
+      {chain === 'base' && (
+        <p className="mt-2 text-2xs leading-relaxed text-ink-subtle">
+          Paid on Base in Coinbase Tokenized Stocks. The number of shares is worked out from the
+          live price when you claim.
+        </p>
+      )}
 
       {converted && result.fxRate != null && (
         <p className="num mt-2 text-2xs leading-relaxed text-ink-subtle">
@@ -475,7 +574,7 @@ function Result({
         </p>
       )}
 
-      {!priceKnown && (
+      {chain === 'solana' && !priceKnown && (
         <p className="mt-2 text-2xs leading-relaxed text-ink-subtle">
           Share count pending — no live price for {result.ticker} right now.
         </p>
@@ -575,6 +674,23 @@ function Result({
 
       {claim ? (
         <Claimed claim={claim} />
+      ) : pending ? (
+        <div className="mt-5 rounded-lg bg-sunken px-3 py-2.5 text-2xs leading-relaxed text-ink-muted">
+          {pending.message}
+          {pending.explorer && (
+            <>
+              {' '}
+              <a
+                href={pending.explorer}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-primary hover:underline"
+              >
+                {explorerName(chain)}
+              </a>
+            </>
+          )}
+        </div>
       ) : (
         <>
           <button
@@ -631,18 +747,23 @@ function shareOnXUrl(result: VerifyResponse, shares: number | null): string {
  * the user got paid the thing they came for.
  */
 function Claimed({ claim }: { claim: ConfirmResponse }) {
+  const chain = claim.chain ?? 'solana';
+  const href = claim.xstock.explorer ?? claim.xstock.solscan;
   return (
     <div className="mt-5">
-      <p className="label-caps">Sent</p>
+      <p className="label-caps">Sent{chain === 'base' ? ' on Base' : ''}</p>
 
       <ul className="mt-2.5 space-y-2">
         <PayoutRow
           label={`${claim.xstock.ticker}${
             claim.xstock.amount != null ? ` · ${formatTokenAmount(claim.xstock.amount)}` : ''
           }`}
-          href={claim.xstock.solscan}
+          href={href}
+          explorer={explorerName(chain)}
         />
-        {claim.bonus && <PayoutRow label="STACKD bonus" href={claim.bonus.solscan} />}
+        {claim.bonus && (
+          <PayoutRow label="STACKD bonus" href={claim.bonus.solscan} explorer="Solscan" />
+        )}
       </ul>
 
       {claim.bonusFirstClaim ? (
@@ -661,7 +782,19 @@ function Claimed({ claim }: { claim: ConfirmResponse }) {
   );
 }
 
-function PayoutRow({ label, href }: { label: string; href: string }) {
+function explorerName(chain: PayoutChain): string {
+  return chain === 'base' ? 'Basescan' : 'Solscan';
+}
+
+function PayoutRow({
+  label,
+  href,
+  explorer,
+}: {
+  label: string;
+  href: string | undefined;
+  explorer: string;
+}) {
   return (
     <li className="flex items-center gap-2.5 rounded-lg bg-sunken px-3 py-2.5">
       {/* Indigo, not green — green means "the number went up", not "it sent". */}
@@ -677,14 +810,16 @@ function PayoutRow({ label, href }: { label: string; href: string }) {
         </svg>
       </span>
       <span className="num min-w-0 flex-1 truncate text-xs text-ink">{label}</span>
-      <a
-        href={href}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="shrink-0 text-2xs font-medium text-primary hover:underline"
-      >
-        Solscan
-      </a>
+      {href && (
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="shrink-0 text-2xs font-medium text-primary hover:underline"
+        >
+          {explorer}
+        </a>
+      )}
     </li>
   );
 }
